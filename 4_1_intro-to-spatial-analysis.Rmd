@@ -1,0 +1,494 @@
+---
+output: 
+  html_document:
+    code_folding: show
+---  
+
+# 1.1  Shape data and maps  
+
+## What's the deal with spatial 'data wrangling'  
+
+The modern quantitative scientist has to know a lot more about working with databases and data analysis than in the past. Scientists are increasingly integrating a large variety of spatial data-sets into their work. These analyses require matching data-sets that may have been entered in different ways, or cover different temporal and spatial scales. 
+
+All of these procedures can be termed data wrangling. In this course we are going to learn how **R** can be used for wrangling of spatial data. We're going to work through a 'realistic' case-study.  
+
+As expert **R** users we have often been faced with situations where a collaborator has asked us to 'just run some numbers' on a dataset, and be rewarded with an 'easy' paper. 
+
+'Easy' is often far from the truth. And the time-consuming part isn't the stats. It's the cleaning of the data that takes a lot of time. And then often we need to match up the new data to existing data-sets, such as when we want to know whether the spatial distribution plankton correlates with ocean temperature. 
+
+If you have to deal with large data-sets you may realise that data wrangling can take a considerable amount of time and skill with spreasheets programs like excel. Data wrangling is also dangerous for your analysis- if you stuff something up, like accidentally deleting some rows of data, it can affect all your results and the problem can be hard to detect.  
+
+## Copepod data  
+
+Remember Prof Calanoid? Well let's get started with that copepod richness data. In this part of the course we are going to clean it up and run some basic analyses. 
+
+Fire up RStudio, start a new **R** script (just click the symbol with the little green plus) and save the script it in the same folder as where you have 'data-for-course/' as a sub-folder. You might like to call your script `copepod-wrangling.R`.  
+
+We always start our scripts with some comments that include a description of goals, our name and date. So do that too.  
+
+## Loading data 
+
+Now let's look at that first spreadsheet Prof Calanoid sent us. We don't know the data well, and Prof Calanoid hasn't told us much about it (or sent us any meta-data on what it all means), so we will want to do some thorough checks and visuals before we run any analyses. 
+
+This mirrors situations that all of us (Dave, Ant, Bill and Chris) of us have often come across. We are given data by collaborators, so we need to check and do some visuals on it before we do the analysis, to make sure we understand it well and avoid errors.  
+
+It is common to see people hired to do an analysis of a 'complete' data-set, but it ends up taking them the entire contract just to sort out the data, which weren't really complete after all. **R** can help speed up this process, so the analysis (what you're ultimately paid to do) gets done.  
+
+We will load in the data using a package from the tidyverse called `readr`. `readr` is handy because it does extra checks on data consistency over and above what the base **R** functions do. Data frames imported by `readr` also print in summary form by default. Let's see how:  
+
+```{r}
+library(readr)
+dat <- read_csv("data-for-course/copepods_raw.csv")
+dat
+```  
+
+(if you want to print the _entire_ data frame, then use this code: `data.frame(dat)` to turn it back into a base **R** data frame).  
+
+In this data you will see a `silk_id` column, which is just the ID for each of the silks, onto which plankton are recorded. For processing, silks are divided into segments, so you will also see a `segment_no` column. The other columns are pretty self explanatory.  
+
+## Initial visuals  
+
+It's a good idea to do some visuals with new data to check they are in shape. 
+
+We will be using `ggplot2` for graphs and `tmap` for maps in this course. Both work will within the tidyverse paradigm, and both have some pretty powerful tools for quickly creating graphics 
+
+You might like to download RStudio's [ggplot cheatsheet](https://www.rstudio.com/wp-content/uploads/2015/08/ggplot2-cheatsheet.pdf) for reference.  
+
+### Check the coordinates 
+
+At it's heart a map is just a plot of spatial coordinates. So let's make our first map with `ggplot`, plotting the coordinates for the samples (segments of the CPR silks): 
+
+```{r}
+library(ggplot2)
+ggplot(dat) + 
+  aes(x = longitude, y = latitude, color = richness_raw) +
+  geom_point()
+```  
+
+Which just shows the location of every segment. We also coloured points by the species richness. You can kind of see the CPR surveys wrapping around the coast of Australia.  
+
+So far so good, now let's look at the richness data, our main variable for analysis 
+
+### Plotting richness 
+
+In this course we'll be blending a lot of spatial and non-spatial analysis and visuals. This is common in a spatial analysis workflow. Sometimes the idea of learning spatial analysis sounds daunting, but much of it is just a continuation of non-spatial data analysis techniques. So if you can already do those in **R** you can transfer those skills to spatial analysis. 
+
+Let's try another plot of latitude versus richness:  
+
+```{r}
+ggplot(dat, aes(x = latitude, y = richness_raw)) + 
+  stat_smooth() + 
+  geom_point()
+```  
+
+It's handy to do lots of plots when getting to know your data, maps or not. Something clearly looks odd with this graph, like there is an unnatural change in the data pattern at about -40. Well, at least we have some results. 
+
+We'll send this graph to Prof Calanoid and see what she thinks the issue is. Hopefully we'll hear back soon. 
+
+(hint, if you actually want to save the above graph use `ggsave`)
+
+## Introduction to maps 
+
+Let's repeat the above map of richness, but this time using some of **R**'s specialist packages for GIS and mapping. 
+
+The first step is to turn our point data into a spatially referenced data frame. We will use the `sf` package to do this. 
+
+`sf` stands for 'simple features' and is an open standard for geospatial databases. Interfaces using the simple features standard are available in many GIS programs. For **R** we need the package `sf`. 
+
+A good introduction to `sf` can be found in [Geocomputation in R](https://geocompr.robinlovelace.net/), which is free online. 
+
+In the spatial analysis in **R** was usually done with the `sp` package, which uses a different (and less convenient) paradigm for databases. You may still have to use that sometimes when `sf` doesn't play nicely with other packages. Eventually `sf` will replace `sp`, so we will be teaching `sf` today. 
+
+So first install `sf` if you don't have it. This may prove to be a bit tricky depending on your operating system. `sf` depends on lots of other packages including `rgdal` and `rgdal` is famous for issues with installation. So see how you go. If `sf` won't install, then just follow along on our screen for now and figure that out later (with lots of googling). 
+
+Now, let's turn our data into a 'simple features collection'. 
+```{r}
+library(sf)
+sdat <- st_as_sf(dat, coords = c("longitude", "latitude"), 
+                 crs = "+proj=longlat +datum=WGS84 +no_defs")
+```
+There's a bit to explain here in this simple step. 
+
+`st_as_sf` is the function that converts different data types to simple features. Try `?st_as_sf` to see what else it can convert. `dat` is our original data. The `coords` bit just gives the names of the columns that relate to the spatial coordinates (in order of X coordinate followed by Y coordinate). 
+
+What does the part starting `crs` do? 
+
+### Coordinate reference systems 
+
+`crs` stands for **Coordinate Reference System**. 
+
+What is a coordinate reference system? Well the earth is spherical. So at the very least, we'd need a 3 dimensional coordinate system and a reference point to accurately map locations on the Earth's surface. 
+
+But our maps are plotted in 2 dimensions. So we need to decide how to 'project' the 3 dimensions onto 2. There are many ways to do the projection they are called 'projections'. Projections are given using a standardized code called a `proj4string`. The command `crs` takes a `proj4string`. 
+
+The `+proj=longlat` part of the `proj4string` tells us we are using long-lat coordinates. We'll learn how to use proj4 strings to reproject maps later. 
+
+We also need to say how those coordinates relate to the spherical shape of the earth. 
+
+To do that, we first need a model to describe the spherical surface of the earth. The earth is lumpy and fatter at the equator than a perfect sphere, because of its spin. 
+
+There are a few ways to model Earth's lumpy shape, they are called ellipsoids. In some `proj4strings` you might see the ellipsoid explictly written down `+ellps=...`. In our case, the WGS84 datum uses a global standard ellipsoid, which was developed in the last few decades with accurate GPS measurements. 
+
+The `datum` tells us how the coordinates relate to the ellipsoid (e.g. it is a reference to the centre point of the earth).
+
+So in this case we are using unprojected coordinates (long-lat) and the WGS84 datum. 
+
+We can also specify the `proj4string` with an EPSG, which is a shorthand code that refers to the specific proj4string (in fact we are using here EPSG 4326 is the code for the type of coordinates you get from a GPS). 
+
+If you want to learn more about projections, try [this blog](
+https://www.sharpgis.net/post/2007/05/05/Spatial-references2c-coordinate-systems2c-projections2c-datums2c-ellipsoids-e28093-confusing). 
+
+### Simple feature points collection 
+
+Let's have a look at what we've created in `sdat`: 
+
+```{r}
+sdat
+```
+
+
+Note too that when you print `sdat` to screen you get some meta-data, including the geometry type, its dimensions (just XY here, but we could also have XYZ), its 'bbox' (bounding box), the `epsg` and the `proj4string`. 
+
+The `epsg` and the `proj4string` store the coordinate system reference system ('CRS'). 
+
+The data table in `sdat` looks much like `dat` did, but note it now has a `geometry` column. This is where the coordinates (just one point for each data row) are stored. More complex simple features could have a series of points, lines, polygons or other types of shapes nested in each row of the geometry column. 
+
+The nice thing about `sf` (that wasn't true of `sp`) is that because the data is basically a dataframe with a geometry, we can use all the operations that work on dataframes on `sf` simple features collections. 
+
+These include data wrangling operations like `inner_join`, plotting operations from `ggplot2` and model fitting tools too (like `glm`). 
+
+`sf` also adds geometric operations, like `st_join` which do joins based on the coordinates. More on this later. 
+
+## Basic cartography 
+
+Now let's get into the mapping so we can make something that looks good to send to Prof Calanoid. 
+
+`sf` has simple plotting features, like this: 
+
+```{r}
+plot(sdat["richness_raw"])
+```
+
+We've chosen just to plot the richness column. If we just had `plot(sdat)` it'd do one panel for each variable in the dataframe. The `["richness_raw"]` just selects that variable. 
+
+### Thematic maps 
+
+The package `tmap` is one of many packages for making more sophisticated maps. Let's try it: 
+
+```{r}
+library(tmap)
+
+tm_shape(sdat) + 
+  tm_dots(col = "richness_raw")
+```
+
+`tmap` works much like `ggplot2` in that we build and add on layers. In this case we have just one layer, from `sdat`. We declare the layer with `tm_shape()` (in this case `sdat`), then the plot type with the following command. 
+
+Here we are using `tm_dots` to plot dots of the coordinates. Other options are `tm_polygons`, `tm_symbols` and many others we'll see later.  
+
+We've picked the column `"richness_raw"` for the colour scale. 
+
+We can customize the plot, for instance: 
+
+```{r}
+tm1 <- tm_shape(sdat) + 
+  tm_dots(col = "richness_raw", 
+          palette = "Blues", 
+          title = "Species #")
+tm1
+```
+
+Now we've stored the plot object as `tm1`. If we want to see it we just type `tm1`. This means we can do more to it later on, like add in more layers. 
+
+We've set a colour palette `'Blues'`. Then, we've just told it to title the colour scale (if we didn't give a title, it would title the colour scale 'richness_raw'). 
+
+The name 'Blues' comes from the `RColorBrewer` package, which provides a great catalogue of colour palettes. Check out interactive web app for other palettes:  [colorbrewer.org](http://www.colorbrewer.org). You can use these names directly in the tmap palette argument. 
+
+### Saving tmap 
+
+Let's save this figure and email it to Prof Calanoid to get her opinion. At least she will be happy to hear we are making progress: 
+
+```{r eval = FALSE}
+
+tmap_save(tm1, filename = "Richness-map.png", 
+          width = 600, height = 600)
+```
+
+`tmap_save` is just a function for saving tmaps. Try `?tmap_save` for other options, like changing the figure size, resolution, or file type. The only other trick we used above was to save the tmap to a variable name, `tm1`. This meant we could drop that variable name into `tmap_save`, which identifies which map we want to save.  
+
+--------------------  
+
+### Convenience and frustration with tmap  
+
+We use tmap because it is more intuitive and less 'buggy' than other map plotting packages. It has the advantages of allowing you: layer different maps, to plot both shape files and rasters, to easily change colour scales, to easily add compasses and scale bars. It is also pretty intuitive (the old `plot` method in comparison would offset multiple layers by a small amount and you had to adjust the coordinates to account for it!).  
+
+
+If you get competent at the basics then getting decent maps quickly will become easy for you. Your mapping life will seem good until one day, you decide you want to change the colours, or the legend, or the order of panels or some other detail. Then very quickly you will find yourself bashing your head against your monitor in frustration (at least I do). 
+
+That's the thing about tmap, its really convenient, until suddenly it isn't. It's also pretty new so there isn't a lot of help out there, though help online is expanding every time I look. 
+
+So press on, use web searches if you get stuck and don't be afraid to ask a question on stack overflow if you can't find your problem answered online already.
+
+
+--------------------  
+
+## Mapping spatial polygons as layers
+
+As we said earlier `sf` can handle lots of different types of spatial data, including shapes like polygons. To practice with polygons let's load in a map of Australia and a map of Australia's continental shelf. 
+
+We'll add these as layers using `tmap`. 
+
+### Loading shapefiles 
+
+The polygons are stored as shapefiles, in the course data. We can read them in with the `st_read` command (which is like read_csv, but for spatial files!): 
+
+```{r}
+aus <- st_read("data-for-course/spatial-data/Aussie/Aussie.shp")
+shelf <- st_read("data-for-course/spatial-data/aus_shelf/aus_shelf.shp")
+```
+
+And they are loaded. You can check out the data quite easily by typing the object names: 
+
+```{r}
+aus
+```
+
+------------------  
+
+### A note about .shp files 
+
+It is widely known that .shp files are a terrible format. They are inefficient at storing data and to save one shapefile you actually create multiple files. This means bits of the file can get lost if you transfer the data somewhere. 
+
+A better format is the Geopackage. Geopackages can save multiple different data types all in a single file. And they compress the data more. Read [more about .gpk files in sf here](https://ryanpeek.github.io/mapping-in-R-workshop/spatial_export_import_gpkg.html). 
+
+We've used .shp files in this course because we expect you are most likely to encounter that format. But we encourage you to save your own data in the .gpk format.  
+
+------------------
+
+People often ask us where we get our spatial data from. The answer is all sorts of places, sometimes from collaborators, sometimes we make it from scratch and other times we download it from online data providers (try the AODN for Australian ocean data). 
+
+There is an instructive bonus section on how we created the map of Australia's shelf, if you'd like to know more about sourcing spatial data for maps. 
+
+### Mapping polygons 
+
+It is easy to make a map of a polygon with `tmap`: 
+
+```{r}
+tm_shape(shelf) + 
+  tm_polygons()
+
+```
+ 
+ A thematic map can be built up as a series of layers, so we can just keep adding to our map if we want: 
+
+Note how each new layer starts with the `tm_shape` line, then we say what type of shape we want. We could keep going and add the land and the copepod points: 
+
+```{r}
+tm_shape(shelf) + 
+  tm_polygons(col = 'lightblue') +
+  tm_shape(aus) + 
+  tm_polygons() + 
+  tm_shape(sdat) + 
+  tm_dots()
+```
+We've made the shelf 'lightblue' to differentiate it from the land. 
+
+But we are missing the samples in the southern ocean. This is because the extent for a tmap is set by the first `tm_shape`. We can fix this by setting the `bbox` (bounding box): 
+
+```{r}
+tm_shape(shelf, bbox = sdat) + 
+  tm_polygons()+#col = 'lightblue') +
+  tm_shape(aus) + 
+  tm_polygons() + 
+  tm_shape(sdat) + 
+  tm_dots()
+```
+Now our map extent matches the samples. 
+
+Let's stop here and give you some time to play around with `tmap` and its different features. I really want you to explore the package and try different things. If you get errors, good, they are a learning opportunity. 
+
+Now to get started you might want to type `?tmap` to peruse `tmap`s different features. 
+
+To learn about a quick way to change the style, type `tmap_style("beaver")` then run your map code again. 
+
+Or try the `tmap` vignette. It can be accessed with `vignette('tmap-getstarted')` or web search 'r tmap'. 
+
+Here's a map we made, to help give you some ideas: 
+
+```{r echo=FALSE}
+tm_shape(shelf, bbox = sdat) + 
+  tm_polygons(col = 'slategray2',
+          border.col = 'slategray2')+
+  tm_shape(aus) + 
+  tm_polygons(col = 'wheat',
+                border.col = "grey40") + 
+  tm_shape(sdat) + 
+  tm_symbols(col = "richness_raw", 
+          palette = "YlOrRd",
+          size = 0.1,
+          border.lwd = NA,
+          title.col = "Species \n richness", 
+          alpha = 0.9) + 
+  tm_layout(bg.color = "royalblue4",
+            legend.position = c("left", "top"),
+            legend.bg.color = "grey80") + 
+  tm_compass(text.color = "white") +
+  tm_credits("Chris Brown 2020. CPR data via CSIRO", 
+             position = c("left", "BOTTOM"),
+             col = "white")
+```
+
+
+------------------------  
+
+*Prof Calanoid gets back to us about the figure we sent of richness and latitude. As we had suspected, she says the results are junk. Prof Calanoid has now explained that we need to standardize richness estimates, because silks from different routes have different sizes.*  
+
+*Prof Calanoid had already provided the silk sizes in a file `Route-data.csv`, but had neglected to tell us we needed to use this for a standarisation (typical!). No worries though, we just need to learn how to join the routes data to our richness data and then the standarization will be easy.*
+
+------------------------
+
+
+## Introduction to dplyr package for spatial data wrangling 
+
+`dplyr` stands for 'data pliers'. Along with `tidyr` it is one of the most useful packages for getting your data into shape for analysis. It works very well with spatial data stored as `sf` objects. `dplyr` is part of the tidyverse so it plays very nicely with `ggplot2` and `readr`. 
+
+```{r echo = FALSE, message = FALSE}
+library(dplyr)
+```
+
+### Table joins with spatial data 
+
+One thing `dplyr` is good at is joining data frames by matching columns. Try type `?inner_join` in your console and you will get a list of all the join types it supports. Remember `dplyr` can only do joins on the data table, not the geometry. We will look at spatial joins later on. 
+
+Today we will use `inner_join`. Below, the code will join `dat` to the `routes` data using columns with the same names to match by. It will keep all rows from `dat` where there are matching rows in `routes`, so if rows don't match, they will be chucked out (use `left_join` if you want to keep rows in `dat` that don't match too). `inner_join` will also _duplicate_ rows if there are multiple matches. 
+
+```{r}
+routes <- read_csv("data-for-course/Route-data.csv")
+```  
+
+Have a quick look at `routes` now to make sure you are happy with it. Then we will just use `inner_join` to join it with our spatial data (making sure we check the number or rows stays the same): 
+
+```{r}
+sdat_std <- inner_join(sdat, routes, by = "route")
+nrow(sdat)
+nrow(sdat_std)
+nrow(routes)
+length(unique(routes$route))
+
+```
+
+We checked the number of rows and the number of unique route names to make sure we didn't inadvertently remove or duplicate any data. 
+
+It is worth taking a look through the resulting data (e.g. hover your mouse over the data frame and press F2) to make sure the join worked as intended. 
+
+### Dangerous joins 
+
+**Joins are a very important but very dangerous data wrangling operation!** You must always choose your join type carefully. For instance, `inner_join` vs `left_join` vs `full_join` will all give the same result for some datasets, but not others. 
+
+Even after you think you know what you are doing, you still need to check the outcome. As we explained above, you can lose samples that don't match, or duplicate samples that match multiple times. I (CB) have made (and thankfully corrected) this mistake many times, often because of small inconsistencies in the data I was provided, like when some site names have all lower case, and a handful have title case. 
+
+We don't say this to put you off joins, they are one of the most useful data wrangling tasks you can do in R, but just be careful. 
+
+## Adding new variables 
+
+Once we have a matching `silk_area` value for each sample, it is easy to add a new variable that is standardised richness. To do this we use `mutate` which just takes exisiting variables and calculates a new variable (or overwrites an existing one if we give it the same name). In addition to the standardised variables, we will also calculate the number of species per individual observed. 
+
+```{r}
+sdat_std <-  mutate(sdat_std,
+              richness = richness_raw/silk_area)
+```  
+
+Ok, let's plot standardized richness against latitude so we can send a new graph to Prof Calanoid. To do that we first need to extract the latitude, since it is now stored in the geometry: 
+
+```{r}
+sdat_std$Lat <- st_coordinates(sdat_std)[,2]
+```
+
+Now some straightforward ggplot: 
+
+```{r}
+ggplot(sdat_std) +
+  aes(x = Lat, y = richness, color = richness) + 
+  geom_point() +
+  stat_smooth() + 
+  theme_bw()
+```
+
+Do you see a different pattern now? 
+
+We should also save the standardised data for use later:  
+
+```{r}
+save(sdat_std,file =  "data-for-course/spatial-data/copepods_standardised.rda")
+```
+
+---------------------------
+
+##Bonus material: Where does the shelf data come from?
+
+Prof Calanoid didn't give us the spatial layers for Australia or the continental shelf. We had to derive them ourselves. 
+
+We often get asked where we get our spatial data from. The answer is, lots of sources! But often from web repositories, like the excellent Australian Ocean Data Network. 
+
+It will be instructive to go through how the shelf data was made. It's derivation is a bit convulted, but that is pretty common when you are making customized maps. 
+
+First, we downloaded a shapefile of bathymetry [from the AODN](https://data.gov.au/dataset/ds-aodn-e9624e55-1a14-4267-a8b1-12652e1e33b2/distribution/dist-aodn-e9624e55-1a14-4267-a8b1-12652e1e33b2-1/details?q=)
+
+It is lines data, with lines for contours at 5m resolution. 
+
+Then we read it in with `sf` and filter for the 200m contour as our definition of the continential shelf. 
+
+```{r eval = FALSE}
+library(sf)
+shelfin <- st_read("data-raw/contour_5m/contour_5m.shp")
+shelfin
+range(shelfin$CONTOUR)
+shelf200 <- dplyr::filter(shelfin, CONTOUR == 199.9)
+plot(shelf200["LENGTH"])
+```
+
+Now we have lots of little line segments (the data is not one continuous line around Australia unfortunately). We want to make a polygon from these bits of lines. 
+
+So we did some web searching and on stackoverflow we read about the package `concaveman` which fills in the gaps to make a polygon. So we install that package and use it to make a continuous polygon: 
+
+```{r, eval = FALSE}
+library(concaveman)
+ushelf200 <- concaveman(shelf200)
+plot(ushelf200)
+``` 
+
+Then we just check it has made a valid polygon (see `?st_is_valid` for more explanation)
+
+```{r eval = FALSE}
+st_is_valid(ushelf200)
+```
+
+Turns out its not valid, which may cause us issues with spatial joins later on. 
+
+We make it valid with the '0 metre buffer' trick (which helps round out errors associated with different precisions of the coordinates): 
+
+```{r eval = FALSE}
+ushelf200 <- st_buffer(ushelf200, 0.0)
+st_is_valid(ushelf200)
+
+```
+
+That worked. 
+
+The data also has a Z dimension, that we don't need. So let's drop that: 
+
+```{r eval = FALSE}
+ushelf200 <- st_zm(ushelf200)
+```
+
+Now save it, so its all ready for the students (you!): 
+
+```{r eval = FALSE}
+st_write(ushelf200, "data-for-course/spatial-data/aus_shelf.shp")
+```
+
+If you find yourself in this kind of convoluted workflow trying to get spatial data to work, don't despair. Its common, keep web searching and you will find answers to get you to something that works. Just don't under-estimate how long this kind of thing can take, next time someone asks you to help with an 'easy' project. 
+
+
+-------------------------
+

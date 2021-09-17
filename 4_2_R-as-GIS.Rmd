@@ -1,0 +1,779 @@
+---
+output:
+  html_document: 
+    code_folding: show
+---
+
+#1.2 GIS and spatial analysis
+
+*In the first session we tidied and analysed Prof Calanoid's data so that we could run some analysis of the relationship between latitude and species richness. But the job isn't done yet.*
+
+*Prof Calanoid's actual hypothesis was about sea surface temperature. She also wanted to see some maps and create an interactive map for her funders. *
+
+*So in this session we are going to look at how we combine our copepod data with spatial layers for temperature so we can do some spatial analysis on the relationship between temperature and richness. *
+
+*Then we will generate some predictions for species richness, and map them, like a species distribution model. *
+
+*Finally we will look at creating interactive maps. *
+
+## Introduction to using R for GIS and spatial analysis 
+
+In part 2 of this course we will look at some more advanced spatial analysis that R can do. We are going to look at spatial joins, where we join data based on its geometries. Then we will look at a new type of data 'raster' (pixel) data and see how we can extract raster data for a series of points. 
+
+We will use this extracted data to build a spatial statistical model to test for a relationship between SST and richness. Then, just for fun, we will build an interactive web map. 
+
+
+
+### Getting started for Session 2 
+
+Let's start with a clean slate for session 2. So I encourage you to start a new script and a new R session. Then we'll just load in key packages and data from this morning: 
+
+```{r}
+library(tidyverse)
+library(sf)
+library(tmap)
+rm(list = ls())
+load("data-for-course/spatial-data/copepods_standardised.rda")
+aus <- st_read("data-for-course/spatial-data/Aussie/Aussie.shp")
+
+```
+
+------------  
+
+*Prof Calanoid is ever curious. On seeing the map we sent her with the points crossing the continental shelf, she asks if shelf/off-shelf has an effect on richness. So we'll need to do some more GIS to find out. *
+
+------------  
+
+## Intersecting points and polygons 
+
+To look at the position of the samples with respect to the continental shelf, we'll have to intersect the shelf and points data. To do that we need to do a spatial join. 
+Unlike `dplyr` joins, which work on the data table, the spatial join works on the geometries (ie coordinates). We'll use 'st_intersects' which is going to tell us where points overlap the shelf polgyon. Let's have a go. 
+
+First, we will add a new variable `shelf`, which is just the same everywhere (because everywhere inside the polygon is on the shelf!). This will be handy later. Then we will use `st_join` to try the join, telling it to do an intersection (there are other types of join, see `?st_join` for details): 
+```{r}
+shelf <- st_read("data-for-course/spatial-data/aus_shelf/aus_shelf.shp")
+shelf$shelf <- "Shelf"
+```
+
+```{r eval = FALSE}
+sdat_shelf <- st_join(sdat_std, shelf, join = st_intersects)
+``` 
+Ah an error! Do we throw up our hands in despair and tell Prof Calanoid we can't do it? No. Let's look at this obscure message a bit more closely and try and figure out what it means. 
+
+hmmm, so `st_crs` looks like a function, let's find out what it does: `?st_crs`. 
+
+Ah so it tells us what the CRS is. So `st_crs(x) == st_crs(y) is not TRUE` is saying our two datasets have different coordinate reference systems (note the `==` which is a question: does st_crs(x) = st_crs(y)?)
+
+Let's look at that: 
+
+```{r}
+st_crs(shelf)
+st_crs(sdat_std)
+```
+
+They are almost the same, aside from different datum/ellipsoids. We can fix that easily with a call to `st_transform`. Let's put shelf on the same datum as sdat_std: 
+
+```{r}
+shelf <- st_transform(shelf, crs = st_crs(sdat_std))
+```
+
+Now try the join again: 
+
+```{r}
+sdat_shelf <- st_join(sdat_std, shelf, join = st_intersects)
+names(sdat_shelf)
+unique(sdat_shelf$shelf)
+```
+
+Note it has combined the data fields from sdat_std and shelf when it did the join. This includes the variable we created 'shelf' which has values `shelf` where the point is inside the polygon (ie on the shelf) and `NA` where it the point isn't in the polygon. 
+
+Let's rename those `NA` values to 'Offshore' so that is clear: 
+
+```{r}
+library(tidyr)
+sdat_shelf <- mutate(sdat_shelf, 
+                     shelf = replace_na(shelf, "Offshore"))
+table(sdat_shelf$shelf)
+```
+So we have many more samples offshore than on the shelf. 
+
+Now to check the intersection worked, we can map it out, colouring points by whether they were on or off the shelf: 
+
+```{r}
+
+tm_shape(shelf, bbox = sdat_shelf) + 
+  tm_polygons(col = "grey10") + 
+  tm_shape(sdat_shelf) + 
+  tm_dots(col = "shelf", palette = "RdBu") +
+  tm_graticules()
+
+```
+
+
+---------------------------------
+
+### Tips for those who like it fast  
+
+Intersections and related operations can be slow for complex polygons, or when intersecting lots of polygons. `sf` speeds up these computations by implementing [spatial indexing](https://www.r-spatial.org/r/2017/06/22/spatial-index.html), which means it creates bounding boxes around the polygons first so it can hone in the search for intersections to those places (thus saving computation time).  
+
+`sf` functions like `st_intersection(x, y)` (and `st_join`) compute the spatial index on the first shape given to the function (i.e. `x`). So swapping them around could speed up computations in some instances. Give it a try if speed is an issue for you. 
+
+This feature means that `sf` operations can be significantly faster than simpler operations from other packages (like `sp`). 
+
+--------------------------------
+
+### Analysis of richness by continential shelf/offshore 
+
+Now we have all the data together, we can do another ggplot, with smooth's to visually check if there is an effect of the continental shelf on the richness gradient. 
+
+```{r}
+ggplot(sdat_shelf) + 
+aes(x = Lat, y = richness, color = shelf) +
+geom_point(alpha = 0.5, size = 0.2) + 
+  stat_smooth() + 
+  theme_bw()
+
+```
+
+It looks pretty consistent, though there is an interesting deviation of higher richness on the shelf at around -32. Looking at the map above, this may reflect the high number of on-shelf observations in West Australia at -32 and total absence of offshelf obs there.
+
+We could figure this out with some more explanation (for instance dividing by east and west coasts), but we'll leave that for you to do in your own time. 
+
+## Introducting raster data 
+
+Our aim was to uncover the relationship between temperature and copepod richness. To do that we need some spatial data on temperature, so we can extract temperature at the sampling sites.  
+
+We have provided you with two files `MeanAVHRRSST.gri` and `MeanAVHRRSST.grd` which contain gridded maps of annual mean sea surface temperature from the Hadley dataset.  Gridded data, also known as raster data, can be read and manipulated with the `terra` package. Once you have installed this package, load it in:  
+
+```{r, message=FALSE}
+library(terra)
+```   
+
+---------------------------  
+
+*A note about Raster data, which package should I use?*
+
+There used to be only one package for raster data, `raster`. Now there are three main ones (`raster`, `terra` and `stars`). In this course we have decided to use `terra`. `terra` is similar but more adaptable and faster than `raster`, and is made by the same people. So it supersedes raster. `terra` is easy to learn if you already used `raster`.
+
+There are several things to consider when deciding if you shift to using a newer package. [Chris discusses them in his blog comparing raster and terra](https://www.seascapemodels.org/rstats/2021/05/28/terra-raster-comparison.html). 
+
+There still may be cases where you need to use `raster` such as to make sure data are compatible with the format required by other packages. For instance `terra` is sometimes, but not always compatible with `sf` objects. So it is common when packages change or update that we have to change object types a lot. This is something we'll see below. 
+
+In such cases, you can easily convert a `terra` SpatRaster object to a `raster` raster object with the command `raster::raster()`. If you need an `sf` vector object (e.g. point data) to be compatible with `terra`'s formats convert it with `terra::vect()`.  
+
+---------------------------  
+
+We can then load and view the SST raster like this:  
+
+```{r}
+rsst <- rast('data-for-course/spatial-data/MeanAVHRRSST/MeanAVHRRSST.grd')
+plot(rsst)
+```  
+`rast` will read the raster data in as a `SpatRaster` object. 
+
+This creates a pretty decent first plot of the raster. However, note the colour scale isn't that appropriate for temperatures - green where temperatures are hot and red where they are cold Further, these default colours wouldn't be that great if our audience was red-green colour blind (and we suspect that Prof Calanoid is colour blind)
+
+A colour scale with multiple hues is also inappropriate for continuous data where there are no natural breaks. 
+
+Notice how the change from 12-14 degrees looks much bigger than the change from say 18-20 degrees (the yellow band south of Tasmania and across New Zealand), but both are 2 degrees of change. This effect is created by the shift across 3 hues (red-yellow-green) at around 13 degrees, but only a change in the intensity of green at 19 degrees.  
+
+We can use `tmap` for SpatRasters too. 
+
+```{r}
+
+tm_shape(rsst) + 
+  tm_raster(palette = "-RdBu", title = "SST")
+
+```
+
+Note the "-" in front of the palette name, which makes red warmer temperatures by reversing the colour palette. 
+
+I think the sequential palettes are a generally good choice for temperatures. Sequential palettes like `Reds` are most appropriate when our data has a linear scale. You may also see some people use palettes like `RdBu` (red-blue). We've used it here, because we have temperatures <0. 
+
+Unlike the `terra::plot()` function tmap puts the hue change at a sensible place (zero). When there is a natural break-point in the data, like zero degrees, diverging palettes make sense.
+
+### Layering rasters and points in tmap 
+
+It is straight forward to add on our samples as points over the raster with a tmap: 
+
+```{r}
+tm_shape(rsst) + 
+  tm_raster(palette = "-RdBu", title = "SST") + 
+  tm_shape(sdat_std) + 
+  tm_dots(col = "richness_raw", 
+          palette = "Greys", 
+          title = "Species #") + 
+  tm_compass() 
+```
+
+
+## Extracting temperatures at the sampling sites  
+
+We have overlaid our copepod sampling points on the map of temperature, now let's extract the temperature values at those sampling sites, so we can test Prof Calanoid's hypothesis about SST.
+
+This is easy to do with terra's `extract` function. 
+
+```{r}
+sdat_std$sst <- terra::extract(rsst, vect(sdat_std))[,2]
+```
+
+Note thatterra::extract() isn't compatible with sf objects (yet)  (unlike raster::extract()). So we need to wrap our points data in `vect()` to convert it to `terra`'s SpatVector format for storing point data. 
+
+This is one of the object conversions I mentioned that we just have to deal with when using the latest packages. They usually don't cost much time if you know what you are doing. 
+
+Now we can plot the correlation between richness and SST. We can also run a test to calculate the Pearson correlation coefficient:  
+
+```{r}
+
+ggplot(sdat_std, aes(sst, richness)) + 
+  geom_point() + 
+  theme_minimal()
+with(sdat_std, cor.test(sst, richness))
+```  
+
+The test indicates a significant positive correlation with SST. However, if you examine the plot you may notice that variance in richness tends to increase with SST. 
+
+Can you think of a more appropriate way to model this data that will be more satisfactory to Prof Calanoid?  
+
+Note that ggplot warned us that it 'removed 3 rows because of missing data'. That is because some of the sst values are missing: 
+```{r}
+filter(sdat_std, is.na(sst))
+```
+Let's get rid of those rows, because the missing data will cause us issues later: 
+
+```{r}
+sdat_sst <- filter(sdat_std, !is.na(sst))
+```
+
+The `!` just means 'NOT', so we are asking for the rows that are not NA (missing). 
+
+
+## Simple model of SST 
+
+We could use a GAM to model richness on SST with a Poisson distribution. The Poisson is appropriate for count data. 
+
+```{r message = FALSE}
+library(mgcv)
+m1 <- gam(richness ~ s(sst, k=5), data = sdat_sst, family = 'poisson')
+plot(m1)
+```
+
+So we've limited the degress of freedom of the spline, so it can't be too 'bendy'. We've also asked `gam` to use a Poisson distribution (default is Gaussian), because our data are discrete counts of the number of species.  
+
+### Accounting for regions 
+
+Our data are spatial, and we'd not expect the sst-richness relationship to be the same in all places. For example, the types of species that make up our data are different in the Indian and Pacific oceans. 
+
+We can check for different patterns across the different oceans the data covers  Australia. So let's include a fixed effect for region also: 
+
+```{r message = FALSE}
+sdat_sst$Region <- factor(sdat_sst$region)
+m1 <- gam(richness ~ s(sst, k=5, by = Region) + Region, data = sdat_sst, family = 'poisson')
+```
+
+Let's look at the result (this is easiest with ggplot2). We'll add the GAM predictions onto the end of our dataframe so we can plot those. 
+
+```{r}
+sdat_sst$pred_m1 <- predict(m1, type = "response")
+
+ggplot(sdat_sst) +
+  aes(x = sst, y = richness, color = Region)+
+  geom_point(size = 0.2, alpha = 0.3) +
+  geom_line(aes(y = pred_m1), size = 1) + 
+  facet_grid(.~Region) + 
+  theme_bw()
+```
+The `type = "response"` command ensures we get predictions of species, not log(species). Note was used `aes` again inside `geom_line()` to ensure we got the right y values for the lines. 
+
+### Accounting for overdispersion
+
+So we send the results of our GAM to Prof Calanoid and we get the response: 
+
+*"The poisson model you use for your GAMs is clearly pretty bad and potentially misleading. It is very overdispersed, as such models often are. I would suggest changing to a negative binomial. The catch is you have to supply theta (the dispersion parameter). A good way to pick one is just to start with a trial value and adjust it until your deviance matches your df.residual fairly closely."*
+
+To see these numbers type: 
+
+```{r}
+deviance(m1)
+m1$df.residual
+
+```
+The deviance is the sampling variation we have, the df residuals is the sampling variation our model expects. So clearly our model is under-estimating the sampling variation (the data are 'overdispersed'). 
+
+It does make a difference. Let's have a look: 
+
+```{r}
+m2 <- gam(richness ~ s(sst, by = Region) + Region, data = sdat_sst, family = mgcv::negbin(theta = 1.99))
+deviance(m2)
+m2$df.residual
+``` 
+So we tried the Negative Binomial and in this case negbin(theta = 1.99) does a pretty good job, and much more restrained than the poisson. 
+
+Here I just tried different values of theta (the dispersion parameter) until I got the deviance and resid DF reasonably close. You can also see the script 'find-theta.R' in your data folder for a way to automate this. 
+
+--------------------------  
+
+### Rootograms for checking model fit
+
+A really neat way to check the 'fit' of count models is with [rootograms](https://www.fromthebottomoftheheap.net/2016/06/07/rootograms/). Here's one for our model: 
+
+```{r echo=FALSE}
+DataGLMRepeat::rootogram(sdat_sst$richness, predict(m2, type = "response"))
+```
+
+A perfect fit would have all the grey rectangles sitting exactly on the horizontal line (at zero). The red line shows expected (modelled) counts, the bars show observed counts. So where the bar is floating over the line, the model is over-predicting observed values (ie around richnesses of 10). Where the bar hangs below the black line, the model is underpredicting observations (ie at counts>15). 
+
+So this model could still use a bit of work, but we'll leave that for another day. 
+
+------------------------
+
+Ok let's check out the results
+
+```{r}
+sdat_sst$pred_m2 <- predict(m2, type = "response")
+
+ggplot(sdat_sst) +
+  aes(x = sst, y = richness, color = Region)+
+  geom_point(size = 0.2, alpha = 0.3) +
+  geom_line(aes(y = pred_m2), size = 1) + 
+  facet_grid(.~Region) + 
+  theme_bw()
+```
+
+Looks much the same as before. So our result was robust. 
+
+Note we could add standard errors to these plots, by asking `se = TRUE` in our `predict` function. 
+
+
+## Spatial models of SST and richness 
+
+Now we might like to get a bit more sophisticated with our spatial model. We haven't accounted for dependencies between the locations. Sampling sites that are close together are often more similar to each other than those that are further apart, so each sample is not a true 'independent replicate'.  
+
+This phenomenon is often called **spatial auto-correlation**. It is a concern because if we over-estimate the number of truly independent replicates, then we will also tend to overestimate p-values and effect sizes (though sometimes we can underestimate effect sizes too). So a 'significant' finding is more likely to be spurious. 
+
+We won't have time in the workshop to cover all the intricacies of spatial models. However, we'll try one type and there is some more code below for you to try in your own time. 
+
+But first, some some words of advice from Bill Venables. 
+
+### Words of caution on spatial modelling from Bill Venables
+
+> In this context we really need to regard GAMs (and GLMs) as exploratory tools. They are powerful, but they rely on the (usually naive, but often harmless) assumption that, given the predictors, the observations can be regarded as independent. 
+
+> Even if this is plainly not so, it doesn't rule out the approach entirely as an exploratory tool. GAMMs and GLMMs have the capacity to allow for non-independence of various forms, but taking this to a realistic level would also be extremely intricate and usually dependent on the specifics of any example.
+
+> One approach to account for spatial dependencies is to use lat and longitude as predictors. However, they usually confound with other predictors of a more general kind, such as SST, and foregoing the chance to build a more generally applicable, and interpretable model. 
+
+> Another approach is to choose a spatial scale larger than the distance between samples, within which we will 'clump' samples. Then we can apply a random effect to those clumps. Of course, this assumes the 'clumps' are independent of each other. 
+
+> While I can agree with these approaches, I favour a two-pronged attack, namely try with and without lat and lon as predictors. The purpose of the model that has lat/lon is merely to assess just how much you might be losing out on by omitting location. If this is "not much" then you can feel comfortable with your primary model,  (i.e. omitting Lat & Long from the picture). If this is "wow, that's a lot!" then firstly, you need to be aware of it and secondly, you might want to look around for other suitable predictors, of a non-location kind, to fill in the void. 
+
+> Best practice would be to model the spatial dependencies directly, but we won't cover those more complicated models here. 
+
+### Using longitude as a covariate
+
+Say we wanted to allow the effect of SST to vary continuously with longitude. First extract longitude coordinates from the geometry: 
+
+```{r}
+sdat_sst$x <- st_coordinates(sdat_sst)[,1]
+```
+
+Now we just include the `x` variable in our call to the smoother and do the usual checks. I've included three different ways to fit this model below, for your to explore. 
+
+```{r}
+# m_int <- gam(richness ~s(sst) + s(x, y, bs = "gp", m = c(1,1)), data = sdat_sst, family = mgcv::negbin(theta = 2.03))
+
+# m_int <- gam(richness ~s(sst, by = x), data = sdat_sst, family = mgcv::negbin(theta = 2.03))
+
+m_int <- gam(richness ~s(sst, x), data = sdat_sst, family = mgcv::negbin(theta = 2.03))
+
+m_int$df.residual
+deviance(m_int)
+```
+
+Note that when we plot this model we now get a contour plot (or surface): 
+
+```{r}
+plot(m_int)
+```
+
+But when we send that to Prof Calanoid she says it looks like the mess of pasta she had for dinner last night. 
+
+Below we'll learn how to plot the model predictions so they look less like pasta and more like a map. 
+
+### Challenge topic: Spatial 'clumping' model for the West Coast
+
+One approach Bill mentioned was to clump the data into relatively 'independent' groups and them model those clumps as random effects. We won't do this code in the workshop, but it's here in case you want to try it. 
+
+For simplicity we will try that with just the west coast data: 
+
+```{r eval = FALSE}
+sdat_sst$x <- st_coordinates(sdat_sst)[,1]
+sdat_sst$y <- st_coordinates(sdat_sst)[,2]
+
+sdat_west <- filter(sdat_sst, (x < 120) & (y > -40))
+``` 
+
+Now create the clumps
+
+```{r eval = FALSE}
+sdat_sst$group <- cut(sdat_sst$y, breaks = seq(-37, -16, by = 1.5))
+``` 
+
+Now we can use `group` as a random effect: 
+
+```{r eval = FALSE}
+m4 <- gamm(richness ~ s(sst), data = sdat_sst, 
+           random = list(group=~1),
+          family = mgcv::negbin(theta = 3.8))
+plot(m4$gam)
+summary(m4$lme)
+```
+
+### Challenge topic: Exploratory model with x and y as smoothers 
+
+Another model Bill mentioned. Here's the code if you want to try it in your own time. 
+
+We should first transform the data so the distances are in metres: 
+
+```{r eval = FALSE}
+sdat_west2 <- st_transform(sdat_west, crs = 3577)
+sdat_west2$x <- st_coordinates(sdat_west2)[,1]
+sdat_west2$y <- st_coordinates(sdat_west2)[,2]
+```
+
+Then we can fit the model. I'm using a Gaussian Process smooth on the x,y coordinates, because the GP is a model of correlations: 
+
+```{r eval = FALSE}
+m5 <- gam(richness ~ s(sst) + s(x, y, bs = "gp"), 
+          data = sdat_west2, 
+          family = mgcv::negbin(theta = 3.8))
+plot(m5)
+```
+
+### Challenge topic: Modelling spatial autocorrelation
+
+This could be considered best practice. Here's the code if you want to try it in your own time. 
+
+This is possible with the `mgcv` package, though I would prefer to use a Bayesian method (like INLA) for this more complicated type of modelling. 
+Anyway, if you were motivated to try and fit a model with spatial AC, you might like to do it like this: 
+
+```{r, eval=FALSE}
+m6 <- gamm(richness ~ s(sst), 
+                #This next step includes the spatial AC
+                # with an exponential correlation structure
+                correlation = corExp(form = ~x + y),
+                data = sdat_west2, family =
+                  mgcv::negbin(theta = 3.8))
+
+plot(m6$gam)
+
+summary(m6$lme)
+```
+Which models correlations between samples using an exponential function on distance. Interestingly the range parameter is about 5km, meaning the correlation between points that are 5km apart is about 0.36 and by 30km the correlation is 0.05. See `?corExp` for more details about why that is. 
+
+## Generating and mapping model predictions 
+
+To make a more interpretable map of the SST x longitude model, we will use rasters. 
+
+So we want to map our predictions for richness back onto an SST raster. 
+
+### Generating predictions at the sample locations
+
+If we wanted to generate predictions at the original sample sites, we could just say: 
+
+```{r}
+sdat_sst$richness_pred <- predict(m_int, type = "response")
+```
+
+And then plot the predictions with tmap:
+
+```{r}
+tm_shape(sdat_sst) +
+  tm_dots(col = "richness_pred") 
+
+```
+
+This looks ok, but we might like to extent the edges of the points a bit to fill out the map a bit more. There are a few ways to do this, we will use rasters. 
+
+### Generating predictions anywhere 
+
+First let's aggregate our SST raster so the cell size is bigger (resolution is grainier):
+
+```{r}
+rsst2 <- aggregate(rsst, 2)
+par(mfrow = c(1,2))
+plot(rsst)
+plot(rsst2)
+```
+
+Now we do some tricker to get predictions for the raster grid. 
+
+We need to set up a dataframe that has the SST values and x values (longitudes) from the raster and their cell numbers. Cells are numbered 1 to the total number of cells, starting at the top left cell. 
+
+I've given two options below for choosing cells. The first is more conservative and just chooses cells that have samples (we commented it out). The second uses all ocean cells (we'll do this one now): 
+
+```{r}
+# icell <- cellFromXY(rsst2, st_coordinates(sdat_sst)) #alt option
+icell <- 1:ncell(rsst)
+pred <- data.frame(sst = rsst2[icell][,1],
+                       cells = icell, 
+                       x = xFromCell(rsst2, icell),
+                      y = yFromCell(rsst2, icell)) 
+
+pred <- na.omit(pred)
+head(pred)
+```
+
+We used `na.omit` to get rid of `NA` SST values (land basically). 
+
+Now we can use `predict` to predict the richness values for `m_int`, but with our new SST and x values, using the `newdata` argument. 
+
+```{r}
+pred$richness_pred <- predict(m_int, newdata = pred, type = "response")
+head(pred)
+``` 
+
+We chose the `response` type, so that predictions units of species richness, not log species richness (because of the log link in the negative binomial).
+
+Now we just assign the predictions back to an empty raster. The empty raster is just a copy of `rsst` with no data. 
+
+```{r}
+rpred <- rast(rsst2)
+rpred[pred$cells] <- matrix(pred$richness_pred, ncol = 1)
+```
+
+We specify `rpred[pred$cells]` so it only adds in values in the cells we predited too. 
+
+Finally use your tmap skills to make a map Prof Calanoid will love: 
+
+```{r}
+tm_shape(aus, bbox = st_bbox(rpred)) +
+  tm_polygons(col = "white") + 
+  tm_shape(rpred) + 
+  tm_raster(palette = "RdPu",
+            title= "Richness", alpha = 0.8, n=10) + 
+  tm_layout(bg.color = "grey20", 
+            legend.position = c("left", "top"),
+            legend.text.color = "white", 
+            legend.title.color = "white")
+```
+
+It looks blocky, that's because we predicted richness to the underlying raster. Arguably the 'blockiness' is actually good in this case - these are model predictions, not real data, the blockiness serves to emphasise that. 
+
+Prof Calanoid would probably also like to see a map of SST, so have a go at that yourself. 
+
+Finally, Prof Calanoid would probably also like to see the model fit. One way to do this is to plot the predictions we made in the original data frame as points, coloured by longitude: 
+
+```{r}
+ggplot(sdat_sst) + 
+  aes(x = sst, y = richness_pred, color = x, alpha = 0.5) +
+  geom_point() + 
+    theme_bw() +
+  ylab("Richness (predicted)") + 
+  xlab(expression('SST ('*~degree*C*')'))
+```
+
+There are some interesting deviations from the trend around 20-21 degrees that depend on the longitude. What is going on there? Maybe one of our local plankton experts can answer that question? 
+
+```{r echo = FALSE, message = FALSE, warning  = FALSE}
+# d <- st_read(dsn ="data-raw/auscoast", "aust_cd66states")
+# d$adm <- c("NSW", "Vic", "QLD","SA", "WA", "Tas", "NT", "ACT")
+# d <- select(d, adm, geometry, -STE, -COUNT) %>% 
+#   st_set_crs(st_crs(sf_cope))
+# d <- rmapshaper::ms_simplify(input = as(d, 'Spatial')) %>%
+#   st_as_sf()
+#  st_write(d, dsn = "data-for-course/spatial-data", layer = "Aussie.shp", 
+#           driver = "ESRI Shapefile")
+```
+
+## Create an interactive map  
+
+You are almost there with meeting all of Prof Calanoid's requests. The analysis hasn't been quite as quick, or gone quite as smoothly (pardon the pun) as she led us to believe, but there's only one step to go - the interactive map to impress her funders (though we secretly suspect she just wants to post it on the web to taunt Prof Salp). 
+
+You want to deliver 100% of what she asked, so you can get that fellowship. 
+
+We will create the interactive map using the `leaflet` package. You will need to be connected to the internet for this to work properly. First, install the `leaflet` package and load it into this **R** session:  
+
+```{r, warning=FALSE, message=FALSE}
+library(leaflet)
+```
+
+Leaflet makes use of a Javascript package for mapping (this is the language that dynamic web pages tend to use). It builds maps of your data ontop a range of freely available map layers.  Check out this guide to  [leaflet in R](https://rstudio.github.io/leaflet/) for more examples.  
+
+To build a leaflet map, you layer it up in a series of steps with 'pipes'. Pipes look like this: `%>%`. Pipes connect a series of functions in a sentence like manner, you can think of a pipe as being like a `+` but for functions. 
+
+### Data size and leaflet
+
+Leaflet uses Javascript, so it is code that runs in a user's browser. This means anyone looking at the map on the web has to download all the data before they can render the map. So you should keep your spatial datasets small if you want to use leaflet - imagine your collegues trying to download your 100mb spatial data layer on their mobile data plan. 
+
+Many sophisticated web mapping applications, like Google Maps, use *server-side* code. These can render much larger data-sets because they are only transferring the data that is needed for a particular view. Creating these kinds of applications requires specialised expertise that we won't cover in this course. 
+
+So what we need to do now check the size of our dataset:  
+
+```{r}
+print(object.size(sdat_sst), units = "Kb")
+```
+
+Not too bad. If it was much bigger though you might want to simplify the data, for instance, by aggregating points. 
+
+### Get started with a map
+
+To make the map, we first specify the dataframe to use with `leaflet(cope)`. Then we add tiles, which is the base layer. Then we add markers for our copepod sites:  
+
+```{r}
+leaflet(sdat_sst) %>%
+  addTiles() %>%
+  addCircleMarkers(radius = 0.5)
+```  
+
+We can do a bit more with leaflet maps than this. One option is to change the tiles. See a full list of options  [here](http://leaflet-extras.github.io/leaflet-providers/preview/index.html).  We can also colour the markers by the species richness.  
+
+To build a colour palette, we can use some utility functions provided in the `leaflet` package:  
+
+```{r}
+copedomain <- range(sdat_sst$richness)
+oranges <- colorNumeric("YlOrRd", domain = copedomain)
+```  
+
+Which creates a function that will generate a Yellow-Orange-Red palette from `RColorBrewer`. The `domain` argument ensures that our colour scale will grade from the minimum to maximum copepod richness.  
+
+Now let's build up our leaflet map, but this time we will specify the fill colour of our circle markers to be set using `oranges`.  
+
+We will also add a legend to tell us what shade of purple corresponds to which copepod richness.  
+
+```{r}
+leaflet(sdat_sst) %>%
+  addProviderTiles("Esri.OceanBasemap") %>%
+  addCircleMarkers( radius = 3, 
+                   color = 'grey80', 
+                   weight = 0.1, 
+                   fill = TRUE, 
+                   fillOpacity = 0.7, fillColor = ~oranges(richness)) %>%
+  addLegend("topright", pal = oranges, 
+values = copedomain, 
+title = "Number of copepod species", 
+opacity = 1) 
+```   
+
+I encourage you to play around the options for the leaflet maps, look at the [help files](https://rstudio.github.io/leaflet/) and [provider tiles](http://leaflet-extras.github.io/leaflet-providers/preview/index.html).  
+
+Maps done. We can save this as a webpage and email it to Prof Calanoid: click the 'Export' button above the figure window in RStudio (Better yet, the data are open access, so you just post the html to our own webpage and share the link on Twitter with #beatyoutoit. That way Prof Calanoid can't usurp all the credit for this. Prof Salp and Prof Calanoid are constantly glued to their phones, promoting themselves on Twitter, so they are bound to see it. ). 
+
+Job done. Now we await this esteemed paper Prof Calanoid promised to publish in "The Nature of Plankton", and her support of our fellowship application. 
+
+
+----------------------  
+
+## Bonus material: Changing the map projection  
+
+We might want to change the projection of our map, because this affects how people interpret distances and areas. 
+
+`tmap` can change map projections for us on the fly. Let's try that, with slightly silly settings, so you can see the effect. 
+
+First, tmap has a list of `proj4strings` we can can conveniently access. For example: 
+
+```{r}
+tmaptools::get_proj4("robin", output = "character")
+```  
+
+Show's us the `proj4string` for the Robinson projection, which is the standard for IPCC assessment report maps. 
+
+Cut and paste that into a new projection definition. I'm going to make one change, though, I'll change `+lon_0=0` to `+lon_0=100`, this centres the projection at 100E. 
+
+```{r}
+robin <-  "+proj=robin +lon_0=100 +x_0=0 +y_0=0 +ellps=WGS84 +datum=WGS84 +units=m +no_defs +towgs84=0,0,0"
+```
+
+Now use it in your tmap like this: 
+
+```{r}
+tm_shape(rsst, projection = robin) + 
+  tm_raster(palette = "-RdBu", title = "SST") + 
+  tm_shape(aus, projection = robin) + 
+  tm_polygons(col = "wheat") + 
+  tm_compass() 
+```
+
+Notice how it bends the raster. Try different degrees in `+lon_0=...` and see how that affects the plot. 
+
+
+---------------------
+
+## Bonus material: calculating distances with sf
+
+
+### Distance to shelf 
+
+For speed, let's just do this for Tasmania: 
+
+```{r}
+tas_ext <- raster::extent(140, 155, -45, -39)
+stas <- st_crop(sdat_shelf, st_bbox(tas_ext))
+```
+
+### Slow but precise way 
+
+This method will calculate great circle distances, which is a more accurate way to calculate distances on the globe. But it is also slower (because calculations are done in 3 dimensions!): 
+
+```{r eval = FALSE}
+dist <- st_distance(stas, shelf)
+```
+
+### Fast but less precise way 
+
+This method first projects lon-lat coordinates to UTM, which will result in some distortion. However, then we can calculate Euclidian distances, which is fast (because it is done on only 2 dimensions): 
+
+```{r}
+tas_utm <- crs("+proj=utm +zone=55 +datum=WGS84 +units=m +no_defs")
+stas2 <- st_transform(stas, crs = tas_utm)
+shelf2 <- st_crop(shelf, tas_ext)
+shelf2 <- st_transform(shelf2, crs = tas_utm)
+
+dist2 <- st_distance(stas2, shelf2)
+stas2$dist <- as.numeric(dist2)/1000
+
+```
+
+For most applications the fast but less precise way will probably suffice. 
+
+### Plot samples by their distance to the shelf  
+
+```{r}
+tm_shape(stas2) + 
+  tm_dots() + 
+  tm_shape(shelf2) + 
+  tm_polygons(col = "lightblue") + 
+  tm_shape(stas2) + 
+  tm_symbols(col = "dist", alpha = 0.5, 
+             title.col = "Distance from \n shelf (km)")
+
+```
+
+You could add in the land, reprojecting on the fly with: 
+
+```{r}
+tm_shape(shelf2) + 
+  tm_polygons(col = "lightblue") + 
+tm_shape(aus, projection = tas_utm) + 
+  tm_polygons() + 
+  tm_shape(stas2) + 
+  tm_symbols(col = "dist", alpha = 0.5, 
+             title.col = "Distance from \n shelf (km)")
+```
+
+Finally, let's look at how distance to shelf relates to richness: 
+
+
+```{r}
+ggplot(stas2) + 
+  aes(x = dist, y = richness) + 
+  geom_point() + 
+  stat_smooth()
+```
+
+Not much going on there. 
+
+
+ ------------------------------  
+  
+

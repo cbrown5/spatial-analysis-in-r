@@ -1,0 +1,161 @@
+---
+output:
+  html_document: 
+    code_folding: show
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## GIS for rasters with stars package
+
+Christina Buelow, Chris Brown
+
+`stars` stands for ‘**S**patio-**T**emporal **Ar**ray**s**'.
+
+`stars` is an alternative package to `terra` for handling raster data in R but also has some additional functionality, such as handling multi-attribute spatiotemporal arrays. 
+
+The `stars` package was not written to replace `terra`, so which one you choose will depend on what you’re most comfortable with and what you’re trying to accomplish. Some spatial data scientists we know have opted to use only `stars` for their analyses. Others switch between the two packages depending on what they need.
+
+What can `stars` do that `terra` can’t?
+
+-	`stars` is compatible with `sf` (spatial vector data package) and `dplyr` (data wrangling package)
+-	`stars` can handle multi-attribute spatiotemporal arrays
+-	`stars` can handle irregular rasters
+- `stars` can handle array data with non-raster spatial dimensions, called 'vector data cubes' 
+
+*We won't cover the last two points in this course, but find more information [here](https://r-spatial.github.io/stars/articles/stars4.html)*
+
+For a speed comparison of different `terra` vs. `stars` functions read [Chris’ blogpost](https://www.seascapemodels.org/rstats/2021/06/01/STARS.html) and [this](https://tmieno2.github.io/R-as-GIS-for-Economists/extract-speed.html). 
+And, if you tend to work with big data, check-out [stars-proxy objects](https://r-spatial.github.io/stars/articles/stars2.html).
+
+### Introducting raster data with `stars`
+
+First, let's load copepod point data and a regular raster of sea surface temperature (sst) with `stars`.
+
+```{r, message=FALSE}
+library(stars)
+load("data-for-course/spatial-data/copepods_standardised.rda")
+rsst <- read_stars('data-for-course/spatial-data/MeanAVHRRSST/MeanAVHRRSST.grd')
+```   
+
+Let's take a quick look at the data with `tmap`.
+
+```{r}
+library(tmap)
+tm_shape(rsst) + 
+  tm_raster(palette = "-RdBu", title = "SST") + 
+  tm_shape(sdat_std) + 
+  tm_dots(col = "richness_raw", 
+          palette = "Greys", 
+          title = "Species #") + 
+  tm_compass() 
+```
+
+### Spatiotemporal arrays
+
+Our sst raster has just two dimensions representing spatial x-y coordinates. To check this, we can look at our raster meta-data (below) and see that the sst raster has only two dimensions that represent locations in space (i.e., longitude (x) and latitude (y)) and values for one attribute (sst).
+
+```{r}
+rsst
+```
+
+The meta-data for our `stars` raster also tells us:
+
+- for dimension 'x' (i.e., longitude) there are 395 columns (from '1' to '395')
+- for dimension 'y' (i.e., latitiude) there are 250 rows (from '1' to '250')
+- the offset values provide the coordinates of the first cell (xmin = 82.5, ymax = -9.75)
+- delta provides the cell size/resolution (0.25 by 0.25 degrees)
+- refsys provides the coordinate reference system (WGS84)
+- values tells us whether there are labels associated with the dimension (no)
+- x/y tells us whether the dimension is associated with a spatial x or y-axis (yes)
+
+Unlike our two-dimensional raster representing annual sst averaged across several years, spatiotemporal arrays have more than two dimensions. 
+
+For example, if we had multiple raster layers representing average sst for each year that we collected copepod data (2007-2016) we would have a three-dimensional spatiotemporal array with just a single attribute (sst). So the three dimensions are: latititude, longitude, and year.
+
+Spatiotemporal arrays are often stored as 'netCDF' files (Network Common Data Form), and R has several packages available for reading netCDFs, including `stars`. 
+
+However, we won't use netCDFs in this course. Instead, we'll use `stars` to read in spatiotemoporal arrays stored as multi-layer rasters in .grd format (the same format as our original sst raster, but with multiple layers - one for each year of sst data).
+
+*Note that `raster` and `terra` can also handle multi-layer rasters as 'SparRaster' or 'RasterStack' objects*
+
+Let's read in a multi-layer raster with sst data for the years 2011 to 2016. Then we'll use `tmap`s 'qtm' function ('quick thematic mapper') to visualise the spatiotemporal array.
+
+```{r}
+rsst_t <- read_stars('data-for-course/spatial-data/sst_2011-2016_v2.grd')
+qtm(rsst_t)
+```
+
+Let's look at the meta-data for the spatiotemporal array and see how it compares to our other single-layer raster. We can see that we now have 
+three dimensions instead of two: x (longitude), y (latitude), and band (year). 
+
+The meta-data tells us that there are six 'bands', i.e., one for each year (2011-2016), and that there are no spatial coordinates for this dimension.
+
+```{r}
+rsst_t 
+```
+
+Notice also that the resolution of our spatiotemporal array is smaller (0.12 by 0.12 degrees) than our original sst raster (0.25 by 0.25 degrees). Lets resample our array to be the same resolution as our original raster. Check that the delta values are 0.25. 
+
+```{r}
+rsst_t2 <- st_warp(rsst_t , rsst)
+rsst_t2
+```
+
+If we only want to compare two years, we can 'slice' out the years that we're interested in, e.g., 2011 (band 1) and 2016 (band 6). We'll use the function 'slice' from the `dplyr` package to do this.
+
+```{r}
+library(tidyverse)
+qtm(slice(rsst_t2, band, c(1,6)))
+```
+
+### Extracting data
+
+Now let's use `stars` to extract sst data at each of our copepod sampling sites. 
+
+If we were using `terra` to do this, we would first need to convert our copepod point data into an object compatible with `terra`'s extract function. One of the advantages of using `stars` is that it is highly compatible with `sf` objects, like our copepod point data. 
+
+First we'll try extracting sst data from our regular raster and add these values to our copepod data in a column called 'sst'. Then we can plot copepod richness against sst.
+
+```{r}
+df_sst <- st_extract(rsst, sdat_std)
+sdat_std$sst <- df_sst$MeanAVHRRSST.grd
+
+ggplot(sdat_std) + 
+  aes(sst, richness) + 
+  geom_point() + 
+  geom_smooth() +
+  theme_minimal()
+```
+
+Now let's see how copepod richness varies with sst over time. We'll need to use our spatiotemporal array of sst data to do this.
+
+We can easily extract data for all years, then its easy to plot temperature against richness in a specific year (sst for each year will be in its own column, we could use `pivot_longer` if we wanted sst values all in one column): 
+
+```{r}
+
+df_rsst <- st_extract(rsst_t2, sdat_std) %>%
+  st_as_sf() %>%
+  st_join(sdat_std)
+
+ggplot(df_rsst) + 
+  aes(x = X2015, y = richness) + 
+  geom_point() + 
+  geom_smooth() +
+  theme_minimal()
+```
+
+Or compare temperature in different years: 
+
+```{r}
+ggplot(df_rsst) + 
+  aes(X2011, X2016) +
+  geom_abline(yintercept = 0, slope = 1) + 
+  geom_point() + 
+  geom_smooth() +
+  theme_minimal()
+```
+
+This has been a very brief introduction to spatiotemporal arrays in R with `stars`. To find out more about what `stars` can do be sure to explore the package vignette [here](https://r-spatial.github.io/stars/).

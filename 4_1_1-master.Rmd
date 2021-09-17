@@ -1,0 +1,203 @@
+---
+title: 'Data wrangling for spatial analysis: R Workshop'
+always_allow_html: true
+output:
+  html_document:
+    collapsed: no
+    smooth_scroll: no
+    theme: united
+    toc: yes
+    toc_depth: 4
+    toc_float: yes
+  word_document:
+    toc: yes
+    toc_depth: '4'
+---   
+
+Dr Chris J. Brown (Griffith University, chris.brown@griffith.edu.au, Twitter: @bluecology)   
+
+Professor David Schoeman (University of the Sunshine Coast, dschoema@usc.edu.au)   
+
+Professor Anthony J. Richardson (The University of Queensland and CSIRO, a.richardson@maths.uq.edu.au)    
+
+Dr Bill Venables (The University of Queensland and CSIRO, Honorary Research Fellow, Bill.Venables@gmail.com)
+
+These notes are provided to students at the **R** Workshop, held at The University of Queensland 25^th^ June 2021.  
+
+ 2021 Chris J. Brown, David Schoeman, Anthony J. Richardson, Bill Venables
+
+
+# Introduction  
+
+The aim of today's course is to train you in the basic skills you need to be proficient at spatial analysis and mapping. We're going to look at data wrangling, with a focus on its application to spatial data. Then we will do some spatial statistics and mapping. 
+
+We're going to focus on some popular packages for the data wrangling tasks, many of which are drawn from a group of packages known as the 'tidyverse'.
+
+For the spatial analysis we will use tools based around the 'sf' (simple features) and 'terra' packages. 
+
+**The main principles I hope you will learn are:**   
+
+* Spatial data wrangling in **R** is safe, fast, reliable and repeatable  
+* R can be efficiently used to do GIS operations
+* R can be efficiently used to make maps
+* How to perform spatial analyses that integrate across different data-sets 
+
+**By the end of this course you should know:** 
+
+* How spatial data are stored in **R** as simple features and rasters  
+* How to join spatial and non-spatial data types  
+* How to make publication quality maps 
+* How to use some common map projections 
+* How to use spatial data in simple statistical analyses 
+* How to make an interactive web map  
+* How to get help with **R**   
+
+We're aiming to give you a realistic experience, so today's course will be based around a particular project that requires wrangling data, building up analysis and creating maps. 
+
+## Why use R for spatial analysis?  
+
+It makes sense to do your spatial analysis in **R**, because today **R** is the leading platform for environmental data analysis. **R** also has add-on packages that can make it a fully fledged Geographic Information System, from reprojecting spatial data to creating maps. 
+
+A real advantage of R over other GIS programs is that it covers everything from data wrangling, stats to spatial analysis. So having your data in **R** opens up a huge array of cutting edge analysis tools.  This means, for instance, that you can apply cutting edge statistical models straight to your spatial data sets. 
+
+And **R** is totally [**free**](http://cran.r-project.org/). 
+
+A core principle of science is repeatability. Creating and sharing your data scripts helps you to fulfill the important principle of repeatability. It makes you a better scientist and can also make you a more popular scientist: a well thought out script for a common wrangling or analysis problem may be widely used by others. In fact, these days it is best practice to include your scripts with publications.     
+
+Most statistical methods in **R** require your data is input in a certain 'tidy' format. This course will cover how to use **R** to easily convert your spatial data into a 'tidy' format, which makes error checking and analysis easy.
+
+Steps include restructuring existing spatial datasets and combining different spatial and non-spatial data-sets. We will also create some data summaries, plots and maps. Then we will do some spatial statistical analysis. Finally, just for fun, we will finish by creating a web based map of our data.  
+
+The course will be useful for people who want to explore, analyse and visualise their own spatial data in **R**. 
+
+### R versions and Packages required
+
+We're going to assume you're using a recent version of **R** (>3.6.0) and in the course we will use the RStudio editor.  
+
+To work through these notes you will need to install the add-on packages `readr`, `tidyr`, `ggplot2` and `dplyr`. Or you can just get the package `tidyverse` which has these and more.  You will also need `sf`, `terra`, `leaflet`, `tmap`. We will also use `mgcv`, which comes with **R**, so you won't need to install that one. 
+
+### Your knowledge of R 
+
+This isn't an absolute beginner course, so we going to assume you have some knowledge of **R** already. If you are an absolute beginner, then you should take our other course.  
+
+We will assume you have at least basic understanding of how **R** works (e.g. scripts, console, how to access data and what a 'package' is). As a guide you should already be able to read data into **R** using **R** code (ie not using the menus in Rstudio) and create some basic plots.  
+
+The code in these notes is however complete, so you can run this entire course successfully without having to 'know' anything. Though it will be better for your own learning if you type the code out yourself. 
+
+If you get an error, well done! That is a chance to learn for the real world. So ask one of us for help. And if you don't understand something, also don't be afraid to just ask one of us for help.  
+
+
+## Now just imagine... 
+
+*You're close to finishing your PhD on plankton ecology and just need to do one final chapter. You're supervisor isn't being much help (he's off on a global trek promoting his new book).* 
+
+*You're at the International Plankton Symposium (IPS2020) and you gather the courage to talk to Professor Calanoid, your academic hero. After enduring a long rant about Professor Salp's plenary talk ("she's just a backboneless filter feeder who doesn't do any real research herself"), Prof Calanoid mentions that she's read your first PhD paper on zooplankton biogeography.* 
+
+*Prof Calanoid was impressed with the extent of **R** analysis in your biogeography paper and goes onto suggest you collaborate on a new database she is 'working with'.* 
+
+*The database has extensive samples of copepod richness throughout Australia's oceans and the Southern Ocean too. Prof Calanoid has a hypothesis - that like many organisms, copepod species richness (just the number of unique species) will be higher in warmer waters than cooler waters. But she needs help sorting out the data and running some stats.* 
+
+*It will be a super easy paper for you, just do some of your **R** stuff and you will be a coauthor. It will likely be published in the top journal, The Nature of Plankton.*  
+
+*Of course, if you do this job she will support your fellowship application to the International Plankton Research Insitute.* 
+
+*All you have to do is sort out the copepod data, match it to ocean temperature data and run some stats to test this hypothesis. *
+
+*Prof Calanoid also wants you to make some flashy graphs to put in the paper, and make an interactive map of the data that they can share with their funders. *
+
+*Oh and time is short, this is an open-access database, so Prof Calanoid needs this done in the next 3 weeks so that she can submit a paper on it before Professor Salp does. So better drop all your other commitments. *
+
+## The copepod example data  
+
+Professor Calanoid sends you the data files. The spreadsheet `copepods-raw.csv` has measurements of copepod species richness from around Australia. Copepods are a type of zooplankton, perhaps the most abundant complex animals on the planet and an important part of ocean food-webs. Prof Calanoid has also sent you some other data, but has not explained what that is for yet. You'll have to figure that out. 
+
+Copepod species were counted using samples taken from a Continuous Plankton Recorder. The CPR was towed behind 'ships of opportunity' (including commercial and research vessels). 'Silks' run continuously through the CPR and the plankton are trapped onto the silks, kind of like a printer that runs all day and night to record plankton in the ocean.  
+
+(The data we've given you are in fact modified from real data, provided by Professor Ant Richardson. Ant runs a plankton lab that is collecting and processing this data from a program called AusCPR, find out more [here](http://imos.org.au/facilities/shipsofopportunity/auscontinuousplanktonrecorder/).
+
+So Prof Calanoid's data is what we'll work with today. We've tried to make this as realistic a learning experience as possible. So be ready to face some errors in the data from Prof Calanoid!  
+
+So now we're almost ready to start the course. But before we get started, there are a few technical things you need to know about how we will use **R** today.  
+
+### Data 
+
+We've provided all the data from Professor Calanoid in a sub-folder `data-for-course`. The easiest way to start is just to open the file `data wrangling and spatial course.r` with Rstudio and start coding there. 
+
+If Rstudio is already open when you open the script, then don't forget to set the working directory with `setwd()` or under the 'Session' menu. 
+
+If you make your own scripts, you  should save them with the data folder as a subfolder and everything should work fine.  
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, results ='markup', warnings = FALSE, message = FALSE, comment = '', strip.white = FALSE)
+```  
+
+</br>
+-------------------------  
+</br>
+
+```{r, child="4_1_intro-to-spatial-analysis.Rmd"}
+
+```  
+</br>
+-------------------------  
+</br>
+</br>
+</br>
+
+```{r, child="4_2_R-as-GIS.Rmd"}
+
+```  
+
+
+# 1.3 Conclusion  
+
+We hoped you enjoyed this course. We went all the way from data-wrangling, to spatial analysis to mapping and back again, all in 1 day (and Prof Calanoid thought we would need 3 weeks!). 
+
+You need to practice to build your **R** skills, so we encourage you to try and make **R** a part of your normal analysis and graphing workflows, even if it seems harder at first. 
+
+## Getting help
+
+> Writing code is 80% googling the answer (unattributed)
+
+If you are going to be a succesful **R** user, then you need to get good at finding help to deal with bugs. The above aphorism is widely subscribed to by professional programmers. **R** is no exception. If you web search an issue, like 'ggplot remove legend' you will commonly get a pretty decent answer on [Stack Overflow](https://stackoverflow.com/questions/35618260/remove-legend-ggplot-2-2) or a similar site. I probably used google tens of times to write these course notes (I can never remember how to put the degrees symbols on plots for instance). 
+
+If the answer doesn't already exist there then sign up to Stack Overflow and ask it yourself (but spend a bit of time looking, no one wants to get tagged for duplicating an existing question!). 
+
+Another good idea is to find a local support group. [R coding is an emotional experience](http://www.seascapemodels.org/rstats/2017/09/18/emotions-of-programming-rstats.html), frustration is a common one, but the elation of finding a solution can help us persist. Having other people to help, or even just listen to your frustrations is a huge help for your motivation to keep learning R.  
+
+## R books and web material 
+
+There are plenty of good books out there (too many to choose from in fact). For the content we covered today, some good resources are: 
+
+- [R for Data Science](https://r4ds.had.co.nz/), for data wrangling mainly 
+
+- [R Graphics Cookbook](http://www.cookbook-r.com/Graphs/), for ggplot and free on the web
+
+- Chris often refers to [Mixed Effects Models and Extensions in Ecology with R](https://www.springer.com/gp/book/9780387874579) 
+
+- The classic text for GAMs is [Generalized Additive Models: An Introduction with R](https://www.routledge.com/Generalized-Additive-Models-An-Introduction-with-R-Second-Edition/Wood/p/book/9781498728331). This has a very technical treatment of GAMs, but also an extensive section with practical examples, including spatial ones. 
+
+- [Geocomputation in R](https://geocompr.robinlovelace.net/), free on the web
+
+- [Leaflet for R](https://rstudio.github.io/leaflet/), free on the web 
+
+- If you want to learn new tricks, or stay up-to-date with the latest packages, the blog aggregator [R-Bloggers](https://www.r-bloggers.com/) has a non-step feed of R blogs from all over the world and all disciplines, including [Chris' blog](http://www.seascapemodels.org/bluecology_blog.html)
+
+If you prefer to have a printed guide, another tactic is to web search your favourite package and 'cheatsheet'. 
+
+## One more thing... 
+
+So you are probably wondering what happened after you delivered the results to Prof Calanoid. 
+
+Well you heard nothing for days, then weeks, then months. You emailed her several times, but no drafts of the paper were forthcoming. By this time your fellowship application was due, to her credit Prof Calanoid did support your application. 
+
+After seeing the impressive maps on your webpage, Prof Salp gave you a surprise call. You sheepishly explained you were already collaborating with Prof Calanoid on this particular analysis. Prof Salp didn't seem perturbed and suggested you work with her on a different dataset. But she doesn't believe in unpaid labour, so she asked you to apply for a fellowship at her institute, The Global Plankton Research Institute.  
+
+The next week you check your email to find you've been offered both fellowships. So which would you choose? 
+
+
+
+-------------------------  
+
+![](copepod.png)
+
