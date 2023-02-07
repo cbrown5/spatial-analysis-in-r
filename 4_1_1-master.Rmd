@@ -1,5 +1,5 @@
 ---
-title: 'Data wrangling for spatial analysis: R Workshop'
+title: 'Spatial analysis in R Workshop'
 always_allow_html: true
 output:
   html_document:
@@ -14,7 +14,7 @@ output:
     toc_depth: '4'
 ---   
 
-Dr Chris J. Brown (Griffith University, chris.brown@griffith.edu.au, Twitter: @bluecology)   
+Associate Professor Chris J. Brown (Griffith University, chris.brown@griffith.edu.au, Twitter: @bluecology)
 
 Professor David Schoeman (University of the Sunshine Coast, dschoema@usc.edu.au)   
 
@@ -22,9 +22,11 @@ Professor Anthony J. Richardson (The University of Queensland and CSIRO, a.richa
 
 Dr Bill Venables (The University of Queensland and CSIRO, Honorary Research Fellow, Bill.Venables@gmail.com)
 
-These notes are provided to students at the **R** Workshop, held at The University of Queensland 25^th^ June 2021.  
+Dr Christina Buelow (Griffith University, c.buelow@griffith.edu.au)
 
- 2021 Chris J. Brown, David Schoeman, Anthony J. Richardson, Bill Venables
+These notes are provided to students at the **R** Workshop, held at The University of Queensland February 2023. 
+
+ 2023 Chris J. Brown, David Schoeman, Anthony J. Richardson, Bill Venables, Christina A. Buelow
 
 
 # Introduction  
@@ -99,7 +101,7 @@ If you get an error, well done! That is a chance to learn for the real world. So
 
 *It will be a super easy paper for you, just do some of your **R** stuff and you will be a coauthor. It will likely be published in the top journal, The Nature of Plankton.*  
 
-*Of course, if you do this job she will support your fellowship application to the International Plankton Research Insitute.* 
+*Of course, if you do this job she will support your fellowship application to the International Plankton Research Institute.* 
 
 *All you have to do is sort out the copepod data, match it to ocean temperature data and run some stats to test this hypothesis. *
 
@@ -113,7 +115,7 @@ Professor Calanoid sends you the data files. The spreadsheet `copepods-raw.csv` 
 
 Copepod species were counted using samples taken from a Continuous Plankton Recorder. The CPR was towed behind 'ships of opportunity' (including commercial and research vessels). 'Silks' run continuously through the CPR and the plankton are trapped onto the silks, kind of like a printer that runs all day and night to record plankton in the ocean.  
 
-(The data we've given you are in fact modified from real data, provided by Professor Ant Richardson. Ant runs a plankton lab that is collecting and processing this data from a program called AusCPR, find out more [here](http://imos.org.au/facilities/shipsofopportunity/auscontinuousplanktonrecorder/).
+(The data we've given you are in fact modified from real data, provided by Professor Ant Richardson. Ant runs a plankton lab that is collecting and processing this data from a program called AusCPR, find out more [here](http://imos.org.au/facilities/shipsofopportunity/auscontinuousplanktonrecorder/).)
 
 So Prof Calanoid's data is what we'll work with today. We've tried to make this as realistic a learning experience as possible. So be ready to face some errors in the data from Prof Calanoid!  
 
@@ -121,20 +123,18 @@ So now we're almost ready to start the course. But before we get started, there 
 
 ### Data 
 
-We've provided all the data from Professor Calanoid in a sub-folder `data-for-course`. The easiest way to start is just to open the file `data wrangling and spatial course.r` with Rstudio and start coding there. 
+We've provided all the data from Professor Calanoid in a sub-folder `data-for-course`. 
 
-If Rstudio is already open when you open the script, then don't forget to set the working directory with `setwd()` or under the 'Session' menu. 
+If Rstudio is already open when you open a script to get started, then don't forget to set the working directory with `setwd()` or under the 'Session' menu. 
 
-If you make your own scripts, you  should save them with the data folder as a subfolder and everything should work fine.  
+If you make your own scripts, you should save them with the data folder as a subfolder and everything should work fine.  
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE, results ='markup', warnings = FALSE, message = FALSE, comment = '', strip.white = FALSE)
 ```  
 
 </br>
--------------------------  
-</br>
-
+------------------------- 
 ```{r, child="4_1_intro-to-spatial-analysis.Rmd"}
 
 ```  
@@ -151,7 +151,7 @@ knitr::opts_chunk$set(echo = TRUE, results ='markup', warnings = FALSE, message 
 
 # 1.3 Conclusion  
 
-We hoped you enjoyed this course. We went all the way from data-wrangling, to spatial analysis to mapping and back again, all in 1 day (and Prof Calanoid thought we would need 3 weeks!). 
+We hope you enjoyed this course. We went all the way from data-wrangling, to spatial analysis to mapping and back again, all in 1 day (and Prof Calanoid thought we would need 3 weeks!). 
 
 You need to practice to build your **R** skills, so we encourage you to try and make **R** a part of your normal analysis and graphing workflows, even if it seems harder at first. 
 

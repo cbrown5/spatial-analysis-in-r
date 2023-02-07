@@ -22,7 +22,7 @@ If you have to deal with large data-sets you may realise that data wrangling can
 
 Remember Prof Calanoid? Well let's get started with that copepod richness data. In this part of the course we are going to clean it up and run some basic analyses. 
 
-Fire up RStudio, start a new **R** script (just click the symbol with the little green plus) and save the script it in the same folder as where you have 'data-for-course/' as a sub-folder. You might like to call your script `copepod-wrangling.R`.  
+Fire up RStudio, start a new **R** script (just click the symbol with the little green plus) and save the script in the same folder as where you have 'data-for-course/' as a sub-folder. You might like to call your script `copepod-wrangling.R`.  
 
 We always start our scripts with some comments that include a description of goals, our name and date. So do that too.  
 
@@ -52,7 +52,7 @@ It's a good idea to do some visuals with new data to check they are in shape.
 
 We will be using `ggplot2` for graphs and `tmap` for maps in this course. Both work will within the tidyverse paradigm, and both have some pretty powerful tools for quickly creating graphics 
 
-You might like to download RStudio's [ggplot cheatsheet](https://www.rstudio.com/wp-content/uploads/2015/08/ggplot2-cheatsheet.pdf) for reference.  
+You might like to download RStudio's [ggplot cheatsheet](https://www.rstudio.com/resources/cheatsheets/) for reference.  
 
 ### Check the coordinates 
 
@@ -105,7 +105,7 @@ Now, let's turn our data into a 'simple features collection'.
 ```{r}
 library(sf)
 sdat <- st_as_sf(dat, coords = c("longitude", "latitude"), 
-                 crs = "+proj=longlat +datum=WGS84 +no_defs")
+                 crs = 4326)
 ```
 There's a bit to explain here in this simple step. 
 
@@ -119,24 +119,40 @@ What does the part starting `crs` do?
 
 What is a coordinate reference system? Well the earth is spherical. So at the very least, we'd need a 3 dimensional coordinate system and a reference point to accurately map locations on the Earth's surface. 
 
-But our maps are plotted in 2 dimensions. So we need to decide how to 'project' the 3 dimensions onto 2. There are many ways to do the projection they are called 'projections'. Projections are given using a standardized code called a `proj4string`. The command `crs` takes a `proj4string`. 
+Also, the earth is not a perfect sphere. It is lumpy and fatter at the equator because of its spin. So we also need a model that describes the spherical surface of the earth.
 
-The `+proj=longlat` part of the `proj4string` tells us we are using long-lat coordinates. We'll learn how to use proj4 strings to reproject maps later. 
+In mapping, we refer to the reference point as `datum` and the earth model as an `ellipsoid`. Together, these make a `geographic coordinate reference system` (GCS), which tells us where the coordinates of our copepod data are located on the earth. 
 
-We also need to say how those coordinates relate to the spherical shape of the earth. 
+GCS's are represented by angular units (i.e. longitude and latitude), usually in decimal degrees. Our copepod coordinates are long-lat, so we chose a common 'one-size-fits-all' GCS called WGS84 to define the crs using the `EPSG` code 4326. 
 
-To do that, we first need a model to describe the spherical surface of the earth. The earth is lumpy and fatter at the equator than a perfect sphere, because of its spin. 
+What is an [EPSG code](https://spatialreference.org/ref/epsg/)? It's a unique, short-hand code for a specific crs. 
 
-There are a few ways to model Earth's lumpy shape, they are called ellipsoids. In some `proj4strings` you might see the ellipsoid explictly written down `+ellps=...`. In our case, the WGS84 datum uses a global standard ellipsoid, which was developed in the last few decades with accurate GPS measurements. 
+Common practice for defining crs's in R has traditionally been with either an `EPSG` code or a `proj4string`. You can still use either of these in R, but note that `proj4strings` are being phased out, and it's best practice is to either use an `EPSG` code or `Well-known text` (WKT) to define a crs. A WKT string contains all of the detailed information we need to define a crs, but is cumbersome if you don't need all of the detail. Read [this](https://inbo.github.io/tutorials/tutorials/spatial_crs_coding/) for a more complete overview.
 
-The `datum` tells us how the coordinates relate to the ellipsoid (e.g. it is a reference to the centre point of the earth).
+It's easy to find out all of the above for a chosen crs in R. For example, for the EPSG code 4326 we can find out:
+1) what the name of this crs is, 
+2) the corresponding `proj4string`, and 
+3) the `WKT`
 
-So in this case we are using unprojected coordinates (long-lat) and the WGS84 datum. 
+```{r}
+crs4326 <- st_crs(4326)
+crs4326$Name # name of the crs
+crs4326$wkt # crs in well-known text format
+crs4326$proj4string # crs as a proj4string
+```
 
-We can also specify the `proj4string` with an EPSG, which is a shorthand code that refers to the specific proj4string (in fact we are using here EPSG 4326 is the code for the type of coordinates you get from a GPS). 
+(Note: It's good that we can still also extract the `proj4string`, because although it's being deprecated, it's still used in other spatial data packages like `raster` and `terra`.)
+
+As mentioned above, EPSG:4326 is short-hand code for WGS84, a common long-lat geographic coordinate reference system (GCS).
+
+When we make a 2-dimensional map in WGS84 GCS, we assume that a degree is a linear unit of measure (when in reality it's angular). 
+
+To more accurately map our data in 2 dimensions, we need to decide how to 'project' 3 dimensions into 2. There are many ways to do the projection depending on where we are in the world and what we're most interested in preserving (e.g., angles vs. distances vs. area). Projections are defined by a `projected coordinate reference system` (PCS), and spatial packages in R use the software [PROJ](https://proj.org/index.html) to this.
 
 If you want to learn more about projections, try [this blog](
 https://www.sharpgis.net/post/2007/05/05/Spatial-references2c-coordinate-systems2c-projections2c-datums2c-ellipsoids-e28093-confusing). 
+
+To find the most appropriate projected crs for your data, try the R package [crs suggest](https://github.com/walkerke/crsuggest).
 
 ### Simple feature points collection 
 
@@ -147,9 +163,7 @@ sdat
 ```
 
 
-Note too that when you print `sdat` to screen you get some meta-data, including the geometry type, its dimensions (just XY here, but we could also have XYZ), its 'bbox' (bounding box), the `epsg` and the `proj4string`. 
-
-The `epsg` and the `proj4string` store the coordinate system reference system ('CRS'). 
+Note too that when you print `sdat` to screen you get some meta-data, including the geometry type, its dimensions (just XY here, but we could also have XYZ), its 'bbox' (bounding box), and the CRS (coordinate reference system).
 
 The data table in `sdat` looks much like `dat` did, but note it now has a `geometry` column. This is where the coordinates (just one point for each data row) are stored. More complex simple features could have a series of points, lines, polygons or other types of shapes nested in each row of the geometry column. 
 
@@ -229,7 +243,6 @@ That's the thing about tmap, its really convenient, until suddenly it isn't. It'
 
 So press on, use web searches if you get stuck and don't be afraid to ask a question on stack overflow if you can't find your problem answered online already.
 
-
 --------------------  
 
 ## Mapping spatial polygons as layers
@@ -259,9 +272,9 @@ aus
 
 It is widely known that .shp files are a terrible format. They are inefficient at storing data and to save one shapefile you actually create multiple files. This means bits of the file can get lost if you transfer the data somewhere. 
 
-A better format is the Geopackage. Geopackages can save multiple different data types all in a single file. And they compress the data more. Read [more about .gpk files in sf here](https://ryanpeek.github.io/mapping-in-R-workshop/spatial_export_import_gpkg.html). 
+A better format is the Geopackage. Geopackages can save multiple different data types all in a single file. And they compress the data more. Read [more about different file formats here](https://geocompr.robinlovelace.net/read-write.html#file-formats). 
 
-We've used .shp files in this course because we expect you are most likely to encounter that format. But we encourage you to save your own data in the .gpk format.  
+We've used .shp files in this course because we expect you are most likely to encounter that format. But we encourage you to save your own data in the .gpkg format.  
 
 ------------------
 
@@ -291,6 +304,7 @@ tm_shape(shelf) +
   tm_shape(sdat) + 
   tm_dots()
 ```
+
 We've made the shelf 'lightblue' to differentiate it from the land. 
 
 But we are missing the samples in the southern ocean. This is because the extent for a tmap is set by the first `tm_shape`. We can fix this by setting the `bbox` (bounding box): 
@@ -303,6 +317,7 @@ tm_shape(shelf, bbox = sdat) +
   tm_shape(sdat) + 
   tm_dots()
 ```
+
 Now our map extent matches the samples. 
 
 Let's stop here and give you some time to play around with `tmap` and its different features. I really want you to explore the package and try different things. If you get errors, good, they are a learning opportunity. 
@@ -424,7 +439,7 @@ save(sdat_std,file =  "data-for-course/spatial-data/copepods_standardised.rda")
 
 ---------------------------
 
-##Bonus material: Where does the shelf data come from?
+## Bonus material: Where does the shelf data come from?
 
 Prof Calanoid didn't give us the spatial layers for Australia or the continental shelf. We had to derive them ourselves. 
 
@@ -465,10 +480,10 @@ st_is_valid(ushelf200)
 
 Turns out its not valid, which may cause us issues with spatial joins later on. 
 
-We make it valid with the '0 metre buffer' trick (which helps round out errors associated with different precisions of the coordinates): 
+We make it valid with st_make_valid function: 
 
 ```{r eval = FALSE}
-ushelf200 <- st_buffer(ushelf200, 0.0)
+ushelf200 <- st_make_valid(ushelf200)
 st_is_valid(ushelf200)
 
 ```

@@ -4,7 +4,7 @@ output:
     code_folding: show
 ---
 
-#1.2 GIS and spatial analysis
+# 1.3 GIS and spatial analysis
 
 *In the first session we tidied and analysed Prof Calanoid's data so that we could run some analysis of the relationship between latitude and species richness. But the job isn't done yet.*
 
@@ -32,7 +32,7 @@ Let's start with a clean slate for session 2. So I encourage you to start a new 
 library(tidyverse)
 library(sf)
 library(tmap)
-rm(list = ls())
+
 load("data-for-course/spatial-data/copepods_standardised.rda")
 aus <- st_read("data-for-course/spatial-data/Aussie/Aussie.shp")
 
@@ -71,7 +71,9 @@ st_crs(shelf)
 st_crs(sdat_std)
 ```
 
-They are almost the same, aside from different datum/ellipsoids. We can fix that easily with a call to `st_transform`. Let's put shelf on the same datum as sdat_std: 
+One is using GRS80 as a coordinate reference system, and the other is using WGS84. (Note: in reality these crs's are nearly identical, but we need to make them the same if we want to intersect them.) 
+
+We can fix this easily with a call to `st_transform`. Let's put shelf on the same datum as sdat_std: 
 
 ```{r}
 shelf <- st_transform(shelf, crs = st_crs(sdat_std))
@@ -169,6 +171,7 @@ We can then load and view the SST raster like this:
 rsst <- rast('data-for-course/spatial-data/MeanAVHRRSST/MeanAVHRRSST.grd')
 plot(rsst)
 ```  
+
 `rast` will read the raster data in as a `SpatRaster` object. 
 
 This creates a pretty decent first plot of the raster. However, note the colour scale isn't that appropriate for temperatures - green where temperatures are hot and red where they are cold Further, these default colours wouldn't be that great if our audience was red-green colour blind (and we suspect that Prof Calanoid is colour blind)
@@ -236,9 +239,11 @@ The test indicates a significant positive correlation with SST. However, if you 
 Can you think of a more appropriate way to model this data that will be more satisfactory to Prof Calanoid?  
 
 Note that ggplot warned us that it 'removed 3 rows because of missing data'. That is because some of the sst values are missing: 
+
 ```{r}
 filter(sdat_std, is.na(sst))
 ```
+
 Let's get rid of those rows, because the missing data will cause us issues later: 
 
 ```{r}
@@ -283,6 +288,7 @@ ggplot(sdat_sst) +
   facet_grid(.~Region) + 
   theme_bw()
 ```
+
 The `type = "response"` command ensures we get predictions of species, not log(species). Note was used `aes` again inside `geom_line()` to ensure we got the right y values for the lines. 
 
 ### Accounting for overdispersion
@@ -320,6 +326,8 @@ A really neat way to check the 'fit' of count models is with [rootograms](https:
 ```{r echo=FALSE}
 DataGLMRepeat::rootogram(sdat_sst$richness, predict(m2, type = "response"))
 ```
+
+(the DataGLMRepeat package is my own pkg of handy functions on github, if you want it, get it here: https://github.com/cbrown5/DataGLMRepeat)
 
 A perfect fit would have all the grey rectangles sitting exactly on the horizontal line (at zero). The red line shows expected (modelled) counts, the bars show observed counts. So where the bar is floating over the line, the model is over-predicting observed values (ie around richnesses of 10). Where the bar hangs below the black line, the model is underpredicting observations (ie at counts>15). 
 
@@ -592,15 +600,13 @@ You are almost there with meeting all of Prof Calanoid's requests. The analysis 
 
 You want to deliver 100% of what she asked, so you can get that fellowship. 
 
-We will create the interactive map using the `leaflet` package. You will need to be connected to the internet for this to work properly. First, install the `leaflet` package and load it into this **R** session:  
-
+We will create the interactive map using the `leaflet` package. You will need to be connected to the internet for this to work properly. You can access leaflet directly via tmap. Just change the tmap mode to "view": 
 ```{r, warning=FALSE, message=FALSE}
-library(leaflet)
+tmap_mode("view")
 ```
 
-Leaflet makes use of a Javascript package for mapping (this is the language that dynamic web pages tend to use). It builds maps of your data ontop a range of freely available map layers.  Check out this guide to  [leaflet in R](https://rstudio.github.io/leaflet/) for more examples.  
+Leaflet makes use of a Javascript package for mapping (this is the language that dynamic web pages tend to use). It builds maps of your data ontop a range of freely available map layers.  Check out this guide to  [leaflet in R](https://rstudio.github.io/leaflet/) for more advanced examples. But you can do the basics just with the same tmap code we used before. 
 
-To build a leaflet map, you layer it up in a series of steps with 'pipes'. Pipes look like this: `%>%`. Pipes connect a series of functions in a sentence like manner, you can think of a pipe as being like a `+` but for functions. 
 
 ### Data size and leaflet
 
@@ -618,41 +624,22 @@ Not too bad. If it was much bigger though you might want to simplify the data, f
 
 ### Get started with a map
 
-To make the map, we first specify the dataframe to use with `leaflet(cope)`. Then we add tiles, which is the base layer. Then we add markers for our copepod sites:  
+Here's a first map: 
 
 ```{r}
-leaflet(sdat_sst) %>%
-  addTiles() %>%
-  addCircleMarkers(radius = 0.5)
+tm_shape(sdat_sst) +
+  tm_dots() 
 ```  
 
-We can do a bit more with leaflet maps than this. One option is to change the tiles. See a full list of options  [here](http://leaflet-extras.github.io/leaflet-providers/preview/index.html).  We can also colour the markers by the species richness.  
-
-To build a colour palette, we can use some utility functions provided in the `leaflet` package:  
-
-```{r}
-copedomain <- range(sdat_sst$richness)
-oranges <- colorNumeric("YlOrRd", domain = copedomain)
-```  
-
-Which creates a function that will generate a Yellow-Orange-Red palette from `RColorBrewer`. The `domain` argument ensures that our colour scale will grade from the minimum to maximum copepod richness.  
+.  
 
 Now let's build up our leaflet map, but this time we will specify the fill colour of our circle markers to be set using `oranges`.  
 
 We will also add a legend to tell us what shade of purple corresponds to which copepod richness.  
 
 ```{r}
-leaflet(sdat_sst) %>%
-  addProviderTiles("Esri.OceanBasemap") %>%
-  addCircleMarkers( radius = 3, 
-                   color = 'grey80', 
-                   weight = 0.1, 
-                   fill = TRUE, 
-                   fillOpacity = 0.7, fillColor = ~oranges(richness)) %>%
-  addLegend("topright", pal = oranges, 
-values = copedomain, 
-title = "Number of copepod species", 
-opacity = 1) 
+tm_shape(sdat_sst) +
+  tm_dots(col = "richness_pred") 
 ```   
 
 I encourage you to play around the options for the leaflet maps, look at the [help files](https://rstudio.github.io/leaflet/) and [provider tiles](http://leaflet-extras.github.io/leaflet-providers/preview/index.html).  
@@ -673,10 +660,12 @@ We might want to change the projection of our map, because this affects how peop
 First, tmap has a list of `proj4strings` we can can conveniently access. For example: 
 
 ```{r}
-tmaptools::get_proj4("robin", output = "character")
+tmaptools::get_proj4("robin")
 ```  
 
 Show's us the `proj4string` for the Robinson projection, which is the standard for IPCC assessment report maps. 
+
+(Note also the warning message saying that `proj4strings` are being deprecated. While it's current best practice to use EPSG codes or WKT stings to define projections, R packages are still catching up to this change. Below we need to use a `proj4string` to do the projection on the fly with `tmap`, so we'll use it this time.)
 
 Cut and paste that into a new projection definition. I'm going to make one change, though, I'll change `+lon_0=0` to `+lon_0=100`, this centres the projection at 100E. 
 
@@ -687,6 +676,7 @@ robin <-  "+proj=robin +lon_0=100 +x_0=0 +y_0=0 +ellps=WGS84 +datum=WGS84 +units
 Now use it in your tmap like this: 
 
 ```{r}
+tmap_mode("plot")
 tm_shape(rsst, projection = robin) + 
   tm_raster(palette = "-RdBu", title = "SST") + 
   tm_shape(aus, projection = robin) + 
@@ -721,13 +711,14 @@ dist <- st_distance(stas, shelf)
 
 ### Fast but less precise way 
 
-This method first projects lon-lat coordinates to UTM, which will result in some distortion. However, then we can calculate Euclidian distances, which is fast (because it is done on only 2 dimensions): 
+This method first projects lon-lat coordinates to UTM, which will result in some distortion. However, then we can calculate Euclidian distances, which is fast (because it is done on only 2 dimensions).
+
+We'll use a local projected coordinate reference system for [Tasmania](https://epsg.io/32755) with the short-hand EPSG code: 32755.
 
 ```{r}
-tas_utm <- crs("+proj=utm +zone=55 +datum=WGS84 +units=m +no_defs")
-stas2 <- st_transform(stas, crs = tas_utm)
+stas2 <- st_transform(stas, crs = 32755)
 shelf2 <- st_crop(shelf, tas_ext)
-shelf2 <- st_transform(shelf2, crs = tas_utm)
+shelf2 <- st_transform(shelf2, crs = 32755)
 
 dist2 <- st_distance(stas2, shelf2)
 stas2$dist <- as.numeric(dist2)/1000
@@ -754,7 +745,7 @@ You could add in the land, reprojecting on the fly with:
 ```{r}
 tm_shape(shelf2) + 
   tm_polygons(col = "lightblue") + 
-tm_shape(aus, projection = tas_utm) + 
+tm_shape(aus, projection = 32755) + 
   tm_polygons() + 
   tm_shape(stas2) + 
   tm_symbols(col = "dist", alpha = 0.5, 

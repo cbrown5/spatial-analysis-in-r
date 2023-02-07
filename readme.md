@@ -2,11 +2,11 @@
 
 [Chris Brown](https://experts.griffith.edu.au/7867-chris-brown)  
 
-[Check out the conservation hackers site for upcoming online courses](https://www.conservationhackers.org/courses)
+### [Course notes](https://www.seascapemodels.org/spatial-analysis-in-r/spatial-analysis-in-r.html)
 
-### [Course notes](https://www.seascapemodels.org/Advanced-spatial-analysis-2021/Advanced-spatial-analysis-2021.html)
+### [Data for course](https://github.com/cbrown5/spatial-analysis-in-r/raw/main/data-for-course.zip)
 
-### [Data for course](https://github.com/cbrown5/Advanced-spatial-analysis-2021/raw/main/data-for-course.zip)
+### [Just the R code](https://github.com/cbrown5/spatial-analysis-in-r/raw/main/spatial-analysis-in-r.R)
 
 ## Setup
 
@@ -21,3 +21,25 @@ You'll also need to install a few R packages. You can install them with this R c
 If that doesn't work email us with the error and we'll try to help. Otherwise, see your IT department for help.
 
 We're using dplyr version 1.0, which was released earlier this year. If you have an older version of dplyr the course should still work fine, but there may be some minor differences in the code.
+
+### Technical notes about the github repo
+
+All code is in the main folder
+'data-raw/' has raw data files used to create data for the students (so don't share this with students its too big). 
+'data-for-course' has modified data files for the students. 
+These scripts take the full data and make simpler
+versions for the course: 
+aggregate-spatio-temporal-dat.R
+create-polygons.R
+create-data-for-course.R
+
+#### Structure of Rmd files  
+
+4_1_1-master.Rmd
+This is a master file with a bit of intro material and our names etc... It also knits together the two sub-folders for the first and second parts of the course
+
+4_1_data_wrangling_plotting.Rmd  
+This is the first part of the course. It can be run stand-alone, or as a child of the master file
+
+4_2_intro_to_mapping.Rmd
+This is the second part of the course. It can be run stand-alone, or as a child of the master file
