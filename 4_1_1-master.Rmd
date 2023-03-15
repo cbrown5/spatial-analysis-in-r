@@ -28,6 +28,7 @@ These notes are provided to students at the **R** Workshop, held at The Universi
 
  2023 Chris J. Brown, David Schoeman, Anthony J. Richardson, Bill Venables, Christina A. Buelow
 
+[Download the course data](https://github.com/cbrown5/spatial-analysis-in-r/raw/main/data-for-course.zip)
 
 # Introduction  
 
@@ -97,7 +98,7 @@ If you get an error, well done! That is a chance to learn for the real world. So
 
 *Prof Calanoid was impressed with the extent of **R** analysis in your biogeography paper and goes onto suggest you collaborate on a new database she is 'working with'.* 
 
-*The database has extensive samples of copepod richness throughout Australia's oceans and the Southern Ocean too. Prof Calanoid has a hypothesis - that like many organisms, copepod species richness (just the number of unique species) will be higher in warmer waters than cooler waters. But she needs help sorting out the data and running some stats.* 
+*The [database](https://github.com/cbrown5/spatial-analysis-in-r/raw/main/data-for-course.zip) has extensive samples of copepod richness throughout Australia's oceans and the Southern Ocean too. Prof Calanoid has a hypothesis - that like many organisms, copepod species richness (just the number of unique species) will be higher in warmer waters than cooler waters. But she needs help sorting out the data and running some stats.* 
 
 *It will be a super easy paper for you, just do some of your **R** stuff and you will be a coauthor. It will likely be published in the top journal, The Nature of Plankton.*  
 
